@@ -37,7 +37,7 @@ public static class SandLizardSetup
 
         var clips = AssetDatabase.LoadAllAssetsAtPath(fbx).OfType<AnimationClip>()
             .Where(c => !c.name.StartsWith("__preview__")).ToDictionary(c => c.name);
-        foreach (var need in new[] { "Idle", "Walk", "Run", "PushUps", "Burrow", "Emerge", "Death" })
+        foreach (var need in new[] { "Idle", "Walk", "Run", "PushUps", "Burrow", "Emerge", "Death", "TurnLeft", "TurnRight" })
             if (!clips.ContainsKey(need)) { Debug.LogError($"Clip '{need}' missing. Reimport SandLizard.fbx after adding the scripts."); return; }
         var controller = BuildController(root + "/SandLizard.controller", clips);
 
@@ -97,18 +97,26 @@ public static class SandLizardSetup
         AssetDatabase.DeleteAsset(path);
         var ac = AnimatorController.CreateAnimatorControllerAtPath(path);
         ac.AddParameter("Speed", AnimatorControllerParameterType.Float);
+        ac.AddParameter("Turn", AnimatorControllerParameterType.Float);
+        ac.AddParameter("LocoRate", AnimatorControllerParameterType.Float);
         ac.AddParameter("PushUps", AnimatorControllerParameterType.Trigger);
         ac.AddParameter("Burrowed", AnimatorControllerParameterType.Bool);
         ac.AddParameter("Dead", AnimatorControllerParameterType.Bool);
         var sm = ac.layers[0].stateMachine;
 
+        // x = Turn (deg/s, + = right), y = Speed (m/s at scale 1)
         var loco = ac.CreateBlendTreeInController("Locomotion", out BlendTree tree, 0);
-        tree.blendType = BlendTreeType.Simple1D;
-        tree.blendParameter = "Speed";
-        tree.useAutomaticThresholds = false;
-        tree.AddChild(clips["Idle"], 0f);
-        tree.AddChild(clips["Walk"], SandLizardController.WalkClipSpeed);
-        tree.AddChild(clips["Run"], SandLizardController.RunClipSpeed);
+        tree.blendType = BlendTreeType.FreeformCartesian2D;
+        tree.blendParameter = "Turn";
+        tree.blendParameterY = "Speed";
+        float tr = SandLizardController.TurnClipDegPerSec;
+        tree.AddChild(clips["Idle"], new Vector2(0f, 0f));
+        tree.AddChild(clips["Walk"], new Vector2(0f, SandLizardController.WalkClipSpeed));
+        tree.AddChild(clips["Run"], new Vector2(0f, SandLizardController.RunClipSpeed));
+        tree.AddChild(clips["TurnLeft"], new Vector2(-tr, 0f));
+        tree.AddChild(clips["TurnRight"], new Vector2(tr, 0f));
+        loco.speedParameter = "LocoRate";
+        loco.speedParameterActive = true;
         sm.defaultState = loco;
 
         var push = sm.AddState("PushUps"); push.motion = clips["PushUps"];

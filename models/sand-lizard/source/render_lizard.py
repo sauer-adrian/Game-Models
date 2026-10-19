@@ -1,6 +1,7 @@
 """Preview renders for the Sand Lizard.
 python3 render_lizard.py <blend> <outdir> <job> ...
 jobs: hero | still:<Action>:<frame>:<name>[:view] | gif:<Action>:<every>[:view]
+      spin:<Action>:<sign>:<frames>:<every>[:view]  (rotates the lizard at the turn-clip rate while the clip loops)
 views: q (3/4 front), side, top, face, low"""
 import sys, os
 import bpy
@@ -50,6 +51,7 @@ VIEWS = {
     "q": ((0.42, -0.48, 0.26), (0, 0.03, 0.035), 55),
     "side": ((0.75, 0.04, 0.12), (0, 0.04, 0.04), 50),
     "top": ((0.001, 0.05, 0.9), (0, 0.05, 0), 45),
+    "topc": ((0.001, 0.0, 1.0), (0, 0.0, 0), 50),
     "face": ((0.10, -0.40, 0.09), (0, -0.14, 0.05), 70),
     "low": ((0.32, -0.42, 0.07), (0, 0.0, 0.05), 50),
 }
@@ -79,6 +81,15 @@ for job in jobs:
         loc, tgt, lens = VIEWS[parts[4] if len(parts) > 4 else "q"]
         set_action(act, int(fr)); aim(loc, tgt, lens)
         render(f"{out}/{name}.png", 700, 500, 32)
+    elif parts[0] == "spin":
+        act, sign, n, every = parts[1], int(parts[2]), int(parts[3]), int(parts[4])
+        loc, tgt, lens = VIEWS[parts[5] if len(parts) > 5 else "top"]
+        f1 = int(bpy.data.actions[act].frame_range[1])
+        aim(loc, tgt, lens)
+        for f in range(0, n, every):
+            arm.rotation_euler = (0, 0, sign * 1.5625 * f / 30)
+            set_action(act, f % f1); render(f"{out}/spin_{act}_{f:03d}.png", 480, 480, 12)
+        arm.rotation_euler = (0, 0, 0)
     elif parts[0] == "gif":
         act, every = parts[1], int(parts[2])
         loc, tgt, lens = VIEWS[parts[3] if len(parts) > 3 else "q"]

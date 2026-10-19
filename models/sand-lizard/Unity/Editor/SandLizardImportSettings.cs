@@ -1,7 +1,7 @@
 using UnityEditor;
 
 // Auto-configures SandLizard.fbx on import: Generic rig, flat normals kept,
-// clip names cleaned ("SandLizard|Walk" -> "Walk") and Idle/Walk/Run set to loop.
+// clip names cleaned ("SandLizard|Walk" -> "Walk") and Idle/Walk/Run/TurnLeft/TurnRight set to loop.
 public class SandLizardImportSettings : AssetPostprocessor
 {
     static bool IsLizard(string path) =>
@@ -31,7 +31,7 @@ public class SandLizardImportSettings : AssetPostprocessor
             int i = n.LastIndexOf('|');
             if (i >= 0) n = n.Substring(i + 1);
             c.name = n;
-            c.loopTime = n == "Idle" || n == "Walk" || n == "Run";
+            c.loopTime = n == "Idle" || n == "Walk" || n == "Run" || n == "TurnLeft" || n == "TurnRight";
         }
         mi.clipAnimations = clips;
     }

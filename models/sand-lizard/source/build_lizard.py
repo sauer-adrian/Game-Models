@@ -474,6 +474,35 @@ def gait(p, f, period, stride, duty, lift, undul, tail_amp, rise, head_up):
 WALK = dict(period=24, stride=0.05, duty=0.62, lift=0.014, undul=0.16, tail_amp=0.22, rise=0.0, head_up=0.05)
 RUN = dict(period=10, stride=0.095, duty=0.45, lift=0.022, undul=0.22, tail_amp=0.32, rise=0.006, head_up=0.12)
 
+
+# ---- turn in place: planted feet sweep around the pivot (opposite to the turn) and step back,
+# while the spine curves into the turn. Play it while rotating the object at TURN_RATE.
+TURN = dict(period=16, duty=0.6, lift=0.016, sweep=0.5)
+TURN_RATE = TURN["sweep"] / (TURN["duty"] * TURN["period"] / 30)  # rad/s
+
+
+def turn(p, f, sign, period, duty, lift, sweep):
+    ph = f / period
+    wave = math.cos(TAU * ph)
+    p.body_loc = Vector((0, 0, 0.0015 * math.cos(2 * TAU * ph)))
+    p.body(FWD_AX, 0.02 * math.sin(TAU * ph))
+    p.rot("Chest", UPZ, sign * 0.16 - 0.05 * wave)
+    p.rot("Hips", UPZ, -sign * 0.08 + 0.05 * wave)
+    p.rot("Neck", UPZ, sign * 0.12); p.rot("Neck", NOSE_UP, 0.06)
+    p.rot("Head", UPZ, sign * 0.10)
+    for i, t in enumerate(TAILS):
+        p.rot(t, UPZ, -sign * (0.06 + 0.035 * i) + 0.06 * (0.5 + 0.25 * i) * math.cos(TAU * ph - 0.9 * (i + 1)))
+    for L in LEGS:
+        u = (ph + 0.5 * GROUP[L["name"]]) % 1.0
+        if u < duty: s, h = 0.5 - u / duty, 0.0
+        else:
+            v = (u - duty) / (1 - duty); s, h = -0.5 + smooth(v), math.sin(math.pi * v)
+        R = Matrix.Rotation(sign * s * sweep, 3, 'Z')
+        w = L["W"]
+        p.tgt[L["name"]] = R @ Vector((w.x, w.y, 0)) + Vector((0, 0, w.z + h * lift)) + lateral(L) * (0.003 * h)
+        ax = L["hd"].cross(UPZ).normalized()
+        p.hrot[L["name"]] = R @ Quaternion(ax, -0.5 * h * L["side"]).to_matrix()
+
 # ---- idle: breathing, snapping head looks, tongue flicks, lazy tail tip
 HEAD_YAW = [0, 0, 0.38, 0.38, 0.38, 0.05, -0.32, -0.32, -0.05, 0]
 HEAD_TILT = [0, 0, 0.12, 0.12, 0.0, 0, -0.1, -0.1, 0, 0]
@@ -562,6 +591,8 @@ record("PushUps", 45, pushups)
 record("Burrow", BURROW_N, burrow)
 record("Emerge", BURROW_N, lambda p, f: burrow(p, BURROW_N - f))
 record("Death", 40, death)
+record("TurnLeft", TURN["period"], lambda p, f: turn(p, f, 1, **TURN))
+record("TurnRight", TURN["period"], lambda p, f: turn(p, f, -1, **TURN))
 
 arm.animation_data.action = None
 for pb in PB.values(): pb.rotation_quaternion = Quaternion(); pb.location = (0, 0, 0)
@@ -583,3 +614,4 @@ print("TRIS", sum(len(p.vertices) - 2 for p in mesh.data.polygons), "VERTS", len
 print("CLIPS", CLIPS)
 for nm, g in (("Walk", WALK), ("Run", RUN)):
     print(nm, "speed m/s", round(g["stride"] / (g["duty"] * g["period"] / 30), 3))
+print("Turn rate rad/s", round(TURN_RATE, 4), "deg/s", round(math.degrees(TURN_RATE), 2))

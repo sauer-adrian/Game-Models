@@ -21,7 +21,9 @@ public class SandLizardAI : MonoBehaviour
     public Vector2 hideSeconds = new Vector2(3f, 6f);
 
     [Header("Movement")]
-    public float turnSpeed = 320f;
+    [Tooltip("Max turn rate (deg/s) while running flat out.")] public float runTurnSpeed = 240f;
+    [Tooltip("Pivot rate on the spot, as a multiple of the turn clip's rate (calm / fleeing).")]
+    public Vector2 pivotMultiplier = new Vector2(1.15f, 2f);
     public LayerMask groundMask = ~0;
     public LayerMask obstacleMask = ~0;
     [Tooltip("Tilt to match the ground slope.")] public bool alignToGround = true;
@@ -155,11 +157,16 @@ public class SandLizardAI : MonoBehaviour
             if (dir.sqrMagnitude < 0.01f) dir = Vector3.Cross(Vector3.up, n).normalized;
             if (state == State.Wander) goal = PickPoint(home, wanderRadius * S);
         }
+        bool urgent = state == State.Flee;
         Quaternion want = Quaternion.LookRotation(dir, Vector3.up);
         Quaternion yawOnly = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
-        Quaternion yaw = Quaternion.RotateTowards(yawOnly, want, turnSpeed * dt);
+        float moving = Mathf.Clamp01(ctl.AnimatedSpeed / Mathf.Max(ctl.RunSpeed, 1e-4f));
+        float pivot = SandLizardController.TurnClipDegPerSec * (urgent ? pivotMultiplier.y : pivotMultiplier.x);
+        Quaternion yaw = Quaternion.RotateTowards(yawOnly, want, Mathf.Lerp(pivot, runTurnSpeed, moving) * dt);
         float angleOff = Quaternion.Angle(yaw, want);
-        ctl.SetSpeed(angleOff > 60f ? speed * 0.25f : speed);
+        // big direction changes: pivot on the spot first (stepping turn clip), then go
+        float k = angleOff > 50f ? (urgent ? 0.3f : 0f) : Mathf.Clamp(1.15f - angleOff / 63f, 0.2f, 1f);
+        ctl.SetSpeed(speed * k);
         Vector3 next = transform.position + (yaw * Vector3.forward) * ctl.AnimatedSpeed * dt;
         Place(next, yaw);
     }

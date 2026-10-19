@@ -64,7 +64,7 @@ section:last-child{border-bottom:0}
 .clips button:hover{border-color:var(--line-strong)}
 .clips button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .clips button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.clips .resume{grid-column:span 4;color:var(--muted)}
+.clips .resume{grid-column:span 3;color:var(--muted)}
 .clips .resume[aria-pressed="true"]{background:transparent;color:var(--accent);border-color:var(--accent)}
 .switch{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;font-size:13.5px}
 .switch input{appearance:none;-webkit-appearance:none;width:30px;height:16px;flex:none;border:1px solid var(--line-strong);background:transparent;position:relative;cursor:pointer;margin:0}
@@ -143,6 +143,8 @@ section:last-child{border-bottom:0}
         <button data-c="Burrow">Burrow</button>
         <button data-c="Emerge">Emerge</button>
         <button data-c="Death">Death</button>
+        <button data-c="TurnLeft">Turn L</button>
+        <button data-c="TurnRight">Turn R</button>
         <button data-c="" class="resume" id="resumeAI" aria-pressed="true">Let it roam (AI)</button>
       </div>
     </section>
@@ -177,7 +179,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 let seed = 7; const srand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
 
 // clip speeds from the model build (m/s at scale 1)
-const WALK = 0.101, RUN = 0.633, BURROW_S = 36 / 30;
+const WALK = 0.101, RUN = 0.633, BURROW_S = 36 / 30, TURN_RATE = 1.5625; // TURN_RATE: rad/s at which the turn clips' planted feet don't slip
 
 // ============================================================ terrain
 function dune(x, z) {
@@ -353,6 +355,7 @@ const threat = { valid: false, pos: new V3(), t: -99, ring: null };
   threat.ring.visible = false; scene.add(threat.ring);
 }
 const _n = new V3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _up = new V3(0, 1, 0);
+const _up2 = new V3(), _ax = new V3(), _qw = new THREE.Quaternion(), _qb = new THREE.Quaternion();
 
 class Lizard {
   constructor(i) {
@@ -369,7 +372,9 @@ class Lizard {
       if (ONESHOT.has(n)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
       a.enabled = true; a.setEffectiveWeight(0); a.play(); this.act[n] = a;
     }
-    this.act.Walk.timeScale = 0; this.act.Run.timeScale = 0;
+    for (const n of ['Walk', 'Run', 'TurnLeft', 'TurnRight']) this.act[n].timeScale = 0;
+    this.turnPhase = 0; this.yawRate = 0; this.wantYawRate = 0;
+    this.bones = ['Chest', 'Neck', 'Hips', 'Tail1', 'Tail2', 'Tail3', 'Tail4'].map(n => model.getObjectByName(n));
     this.phase = Math.random(); this.animSpeed = 0; this.targetSpeed = 0;
     this.one = null; this.oneW = 0; this.oneRelease = false;
     this.pos = this.home.clone(); this.yaw = rand(0, TAU); this.tilt = new THREE.Quaternion();
@@ -419,7 +424,7 @@ class Lizard {
   }
   setVisible(v) { this.visible = v; this.model.visible = v; }
   threatDist() { return threat.valid && sim.scare ? Math.hypot(threat.pos.x - this.pos.x, threat.pos.z - this.pos.z) : Infinity; }
-  steer(dir, speed, dt) {
+  steer(dir, speed, dt, urgent = false) {
     // avoid rocks and the edge: push the heading away from nearby obstacles
     const ahead = 0.3;
     for (const o of OBST) {
@@ -428,13 +433,17 @@ class Lizard {
     }
     const r = Math.hypot(this.pos.x, this.pos.z); if (r > 4.0) { dir.x -= this.pos.x / r * (r - 4) * 4; dir.z -= this.pos.z / r * (r - 4) * 4; }
     const want = Math.atan2(dir.x, dir.z), err = wrap(want - this.yaw);
-    this.yaw = wrap(this.yaw + clamp(err, -5.5 * dt, 5.5 * dt));
-    this.targetSpeed = Math.abs(err) > 1.0 ? speed * 0.25 : speed;
+    // turn rate is limited: slow pivots step around on the spot, fast running turns are allowed
+    const moving = clamp(this.animSpeed / RUN, 0, 1);
+    const maxTurn = (urgent ? 2.0 : 1.15) * TURN_RATE * (1 - moving) + 4.2 * moving;
+    this.wantYawRate = clamp(err * 6, -maxTurn, maxTurn);
+    const a = Math.abs(err);
+    this.targetSpeed = a > 0.9 ? (urgent ? speed * 0.3 : 0) : speed * clamp(1.15 - a / 1.1, 0.2, 1);
   }
   update(dt) {
     this.t += dt; this.timer -= dt;
     const td = this.threatDist();
-    this.targetSpeed = 0;
+    this.targetSpeed = 0; this.wantYawRate = 0;
     if (this.manual) this.updateManual(dt);
     else {
       if ((this.state === 'idle' || this.state === 'wander' || this.state === 'display') && td < 0.85) this.enter('flee');
@@ -452,7 +461,7 @@ class Lizard {
           if (td > 1.7) { this.enter('idle'); break; }
           const away = this.pos.clone().sub(threat.pos); away.y = 0; away.normalize();
           away.applyAxisAngle(_up, Math.sin(this.t * 2.3 + this.i) * 0.6);
-          this.steer(away, RUN, dt); break;
+          this.steer(away, RUN, dt, true); break;
         }
         case 'burrow': if (this.timer <= 0) this.enter('hidden'); break;
         case 'hidden': {
@@ -468,8 +477,10 @@ class Lizard {
         case 'emerge': if (this.timer <= 0) this.enter('idle'); break;
       }
     }
-    // speed + move
+    // speed + turn + move
     this.animSpeed = damp(this.animSpeed, this.targetSpeed, 9, dt);
+    this.yawRate = damp(this.yawRate, this.visible && !this.manual ? this.wantYawRate : (this.manual === 'TurnLeft' ? TURN_RATE : this.manual === 'TurnRight' ? -TURN_RATE : 0), 10, dt);
+    this.yaw = wrap(this.yaw + this.yawRate * dt);
     if (this.animSpeed > 0.002 && this.visible && !this.manual) {
       const nx = this.pos.x + Math.sin(this.yaw) * this.animSpeed * dt, nz = this.pos.z + Math.cos(this.yaw) * this.animSpeed * dt;
       if (!blockedAt(nx, nz, 0.06)) { this.pos.x = nx; this.pos.z = nz; }
@@ -478,6 +489,7 @@ class Lizard {
     this.blend(dt);
     this.mixer.update(dt);
     this.place(dt);
+    this.bendIntoTurn();
   }
   updateManual(dt) {
     const c = this.manual;
@@ -508,8 +520,29 @@ class Lizard {
     else { const t = clamp((v - WALK) / (RUN - WALK), 0, 1); wI = 0; wW = 1 - t; wR = t; dur = dW + (dR - dW) * t; }
     if (v > 0.003 || this.manual === 'Walk' || this.manual === 'Run') this.phase = (this.phase + dt / dur) % 1;
     this.act.Walk.time = this.phase * dW; this.act.Run.time = this.phase * dR;
-    const k = 1 - this.oneW;
-    this.act.Idle.setEffectiveWeight(wI * k); this.act.Walk.setEffectiveWeight(wW * k); this.act.Run.setEffectiveWeight(wR * k);
+    // turning on the spot: the turn clip's feet step at a pace locked to the actual yaw rate
+    const dT = CLIPS.TurnLeft.duration, spin = Math.abs(this.yawRate) / TURN_RATE;
+    const wT = clamp(spin * 1.6, 0, 1) * (1 - clamp(v / WALK, 0, 1));
+    this.turnPhase = (this.turnPhase + spin * dt / dT) % 1;
+    const left = this.yawRate >= 0;
+    this.act.TurnLeft.time = this.act.TurnRight.time = this.turnPhase * dT;
+    const k = 1 - this.oneW, kl = k * (1 - wT);
+    this.act.Idle.setEffectiveWeight(wI * kl); this.act.Walk.setEffectiveWeight(wW * kl); this.act.Run.setEffectiveWeight(wR * kl);
+    this.act.TurnLeft.setEffectiveWeight(left ? wT * k : 0); this.act.TurnRight.setEffectiveWeight(left ? 0 : wT * k);
+  }
+  bendIntoTurn() {
+    // while moving, curve the spine and tail into the turn (the turn clips already curve on the spot)
+    const v = clamp(this.animSpeed / WALK, 0, 1) * (1 - this.oneW);
+    const b = clamp(this.yawRate * 0.085, -0.32, 0.32) * v;
+    if (Math.abs(b) < 1e-4) return;
+    this.model.updateMatrixWorld(true);
+    const up = _up2.set(0, 1, 0).applyQuaternion(this.obj.quaternion);
+    const amount = [1.0, 0.7, -0.45, -0.35, -0.45, -0.5, -0.5];
+    this.bones.forEach((bone, i) => {
+      if (!bone) return;
+      bone.getWorldQuaternion(_qw); const ax = _ax.copy(up).applyQuaternion(_qw.invert());
+      bone.quaternion.multiply(_qb.setFromAxisAngle(ax, b * amount[i]));
+    });
   }
   place(dt) {
     const y = heightAt(this.pos.x, this.pos.z);
