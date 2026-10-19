@@ -14,6 +14,7 @@ Low-poly, Synty-style 3D models for Unity, each one rigged, animated and generat
 | Demo | What it shows |
 |---|---|
 | [Reaper Containment](demos/reaper-containment/) | Browser demo: the Reaper roams a test chamber with procedural foot IK, A* pathfinding, and lure and stalk hunting. Open `index.html` in a browser. |
+| [Sand Lizard Field Preview](demos/sand-lizard-preview/) | Browser demo: lizards bask, wander, do push-ups, flee from your cursor and swim under the sand in a small desert patch. Includes a clip preview panel. |
 
 ## Layout
 

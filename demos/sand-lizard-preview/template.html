@@ -1,0 +1,637 @@
+<title>Sand Lizard Field Preview</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@400;500;600&display=swap">
+<style>
+/* Layout: full-bleed desert patch at golden hour; one field-notes panel docked left (bottom sheet on phones). Single warm look by design. */
+:root{
+  --panel:rgba(30,21,14,.84);
+  --line:#4a3726;
+  --line-strong:#6b5038;
+  --fg:#f3e6d2;
+  --muted:#bfa588;
+  --accent:#e8742c;
+  --accent-ink:#1f1209;
+  --calm:#d8c3a5;
+  --alert:#ffb15c;
+  --hide:#9fc0d8;
+  --bg:#c99f74;
+  --f-display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
+  --f-body:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-data:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;overflow:hidden}
+#stage{position:fixed;inset:0}
+#stage canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+
+.panel{position:fixed;z-index:5;top:calc(16px + env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));
+  width:300px;max-height:calc(100% - 32px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
+  display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 16px 12px;border-bottom:1px solid var(--line)}
+.head h1{margin:0;font-family:var(--f-display);font-weight:800;font-size:34px;line-height:.95;letter-spacing:.02em;text-transform:uppercase;color:var(--fg)}
+.head h1 span{color:var(--accent)}
+.head .sub{margin-top:6px;font-family:var(--f-data);font-size:11.5px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+.toggle-sheet{display:none}
+.body{overflow:auto;display:flex;flex-direction:column}
+section{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+section:last-child{border-bottom:0}
+.label{font-family:var(--f-data);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.specimens{display:flex;flex-direction:column;gap:6px}
+.spec{all:unset;cursor:pointer;display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:7px 10px;border:1px solid var(--line)}
+.spec:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.spec[aria-current="true"]{border-color:var(--line-strong);background:rgba(232,116,44,.1)}
+.spec .id{font-family:var(--f-data);font-size:12px;letter-spacing:.04em}
+.spec .meta{grid-column:1 / -1;font-family:var(--f-data);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.chip{justify-self:end;align-self:center;font-family:var(--f-data);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;color:var(--calm);white-space:nowrap}
+.chip[data-sev="alert"]{color:var(--alert)}
+.chip[data-sev="hide"]{color:var(--hide)}
+.chip[data-sev="hot"]{color:var(--accent);background:rgba(232,116,44,.12)}
+.seg{display:flex;border:1px solid var(--line)}
+.seg button{all:unset;flex:1;text-align:center;cursor:pointer;padding:7px 6px;font-weight:500;font-size:13px;color:var(--muted);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button:hover{color:var(--fg)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.row .field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.clips{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.clips button{all:unset;cursor:pointer;text-align:center;padding:6px 2px;font-size:12.5px;font-weight:500;color:var(--fg);border:1px solid var(--line)}
+.clips button:hover{border-color:var(--line-strong)}
+.clips button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.clips button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.clips .resume{grid-column:span 4;color:var(--muted)}
+.clips .resume[aria-pressed="true"]{background:transparent;color:var(--accent);border-color:var(--accent)}
+.switch{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;font-size:13.5px}
+.switch input{appearance:none;-webkit-appearance:none;width:30px;height:16px;flex:none;border:1px solid var(--line-strong);background:transparent;position:relative;cursor:pointer;margin:0}
+.switch input::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;background:var(--muted);transition:transform .15s}
+.switch input:checked{border-color:var(--accent)}
+.switch input:checked::after{transform:translateX(14px);background:var(--accent)}
+.switch input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.note{margin:0;color:var(--muted);font-size:13px;line-height:1.45;max-width:62ch}
+.note b{color:var(--fg);font-weight:500}
+.hint{position:fixed;z-index:4;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));
+  font-family:var(--f-data);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg);
+  padding:8px 14px;background:var(--panel);border:1px solid var(--line);white-space:nowrap;pointer-events:none}
+.hint b{color:var(--accent);font-weight:500}
+.boot{position:fixed;inset:0;z-index:10;display:grid;place-items:center;background:#2a1d13;color:var(--muted);font-family:var(--f-data);font-size:12px;letter-spacing:.1em;text-transform:uppercase;text-align:center;padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px))}
+.boot strong{display:block;font-family:var(--f-display);font-weight:800;font-size:34px;color:var(--fg);margin-bottom:6px}
+@media (min-width:1100px){ .hint{left:calc(50% + 160px)} }
+@media (max-width:700px){
+  .panel{top:auto;bottom:calc(12px + env(safe-area-inset-bottom,0px));left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));width:auto;max-height:58%}
+  .head{padding:10px 14px;align-items:center}
+  .head h1{font-size:28px}
+  .toggle-sheet{display:inline-flex;all:unset;cursor:pointer;font-family:var(--f-data);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);border:1px solid var(--accent);padding:5px 9px;white-space:nowrap}
+  .toggle-sheet:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .panel[data-collapsed="true"] .body{display:none}
+  .panel[data-collapsed="true"] .head{border-bottom:0}
+  .hint{top:calc(14px + env(safe-area-inset-top,0px));bottom:auto;font-size:11px;padding:6px 10px;white-space:normal;max-width:calc(100% - 32px);text-align:center}
+}
+@media (prefers-reduced-motion:reduce){ .switch input::after{transition:none} }
+</style>
+
+<div id="stage" aria-label="3D desert scene with roaming sand lizards"></div>
+
+<aside class="panel" id="panel" data-collapsed="false">
+  <div class="head">
+    <div>
+      <h1>Sand <span>Lizard</span></h1>
+      <div class="sub">Field preview · 0.5 m · 2k tris</div>
+    </div>
+    <button class="toggle-sheet" id="sheetBtn" aria-expanded="true" aria-controls="panelBody">Controls</button>
+  </div>
+  <div class="body" id="panelBody">
+    <section>
+      <div class="label">Specimens</div>
+      <div class="specimens" id="specList"></div>
+    </section>
+    <section>
+      <div class="row">
+        <div class="field">
+          <div class="label">Count</div>
+          <div class="seg" role="group" aria-label="Number of lizards" id="countSeg">
+            <button data-n="1" aria-pressed="false">1</button>
+            <button data-n="3" aria-pressed="true">3</button>
+            <button data-n="5" aria-pressed="false">5</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="label">Colors</div>
+          <div class="seg" role="group" aria-label="Color scheme" id="paletteSeg">
+            <button data-p="Desert" aria-pressed="true" title="Desert">Des</button>
+            <button data-p="Dune" aria-pressed="false" title="Dune">Dune</button>
+            <button data-p="Ember" aria-pressed="false" title="Ember">Emb</button>
+          </div>
+        </div>
+      </div>
+      <label class="switch" for="optScare">Cursor scares them <input type="checkbox" id="optScare" checked></label>
+      <label class="switch" for="optFollow">Camera follows selected <input type="checkbox" id="optFollow" checked></label>
+      <label class="switch" for="optSpin">Turntable <input type="checkbox" id="optSpin"></label>
+      <label class="switch" for="optSlow">Slow motion <input type="checkbox" id="optSlow"></label>
+    </section>
+    <section>
+      <div class="label">Play a clip on the selected lizard</div>
+      <div class="clips" id="clips">
+        <button data-c="Idle">Idle</button>
+        <button data-c="Walk">Walk</button>
+        <button data-c="Run">Run</button>
+        <button data-c="PushUps">Push-ups</button>
+        <button data-c="Burrow">Burrow</button>
+        <button data-c="Emerge">Emerge</button>
+        <button data-c="Death">Death</button>
+        <button data-c="" class="resume" id="resumeAI" aria-pressed="true">Let it roam (AI)</button>
+      </div>
+    </section>
+    <section>
+      <p class="note"><b>Behaviour.</b> Each lizard basks, wanders around its home rock, does push-up displays, runs from your cursor and dives into the sand when cornered. It swims under the surface and pops up somewhere safer.</p>
+    </section>
+  </div>
+</aside>
+
+<div class="hint" id="hint"><b>Move your cursor</b> near a lizard to scare it · <b>click</b> to stomp</div>
+<div class="boot" id="boot"><div><strong>Sand Lizard</strong>Warming up the desert</div></div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script id="glb" type="application/octet-stream">/*GLB_B64*/</script>
+<script id="pal" type="application/json">/*PALETTES*/</script>
+<script>
+setTimeout(function(){ if(!window.__started){ var b=document.getElementById('boot'); if(b) b.innerHTML='<div><strong>Sand Lizard</strong>The 3D engine did not load. Check your connection and reload the page.</div>'; } }, 12000);
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+window.__started = true;
+
+const $ = s => document.querySelector(s);
+const V3 = THREE.Vector3, TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const damp = (a, b, k, dt) => a + (b - a) * (1 - Math.exp(-k * dt));
+const wrap = a => { a = (a + Math.PI) % TAU; if (a < 0) a += TAU; return a - Math.PI; };
+const rand = (a, b) => a + Math.random() * (b - a);
+let seed = 7; const srand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+
+// clip speeds from the model build (m/s at scale 1)
+const WALK = 0.101, RUN = 0.633, BURROW_S = 36 / 30;
+
+// ============================================================ terrain
+function dune(x, z) {
+  return 0.16 * Math.sin(x * 0.55 + 0.7 * Math.sin(z * 0.31)) * Math.cos(z * 0.33 + 0.4)
+       + 0.06 * Math.sin(x * 1.25 + z * 0.85 + 1.3)
+       + 0.004 * Math.sin((x * 0.8 + z * 0.6) * 22);
+}
+const heightAt = (x, z) => dune(x, z);
+function normalAt(x, z, out = new V3()) {
+  const e = 0.03;
+  return out.set(heightAt(x - e, z) - heightAt(x + e, z), 2 * e, heightAt(x, z - e) - heightAt(x, z + e)).normalize();
+}
+
+// ============================================================ renderer, scene
+const stage = $('#stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(stage.clientWidth, stage.clientHeight);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const HAZE = new THREE.Color(0xe7c39a);
+scene.fog = new THREE.Fog(HAZE, 5, 15);
+{ // sky dome
+  const g = new THREE.SphereGeometry(40, 24, 12), col = [], p = g.attributes.position;
+  const top = new THREE.Color(0x6f93b8), mid = new THREE.Color(0xd9b48c), c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) { const t = clamp(p.getY(i) / 40, 0, 1); c.copy(HAZE).lerp(mid, Math.min(1, t * 3)).lerp(top, Math.max(0, t * 1.4 - 0.15)); col.push(c.r, c.g, c.b); }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })));
+}
+const camera = new THREE.PerspectiveCamera(40, stage.clientWidth / stage.clientHeight, 0.02, 100);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 0.35; controls.maxDistance = 9; controls.maxPolarAngle = 1.48;
+
+scene.add(new THREE.HemisphereLight(0xbcd3ec, 0xc28a55, 0.85));
+const sun = new THREE.DirectionalLight(0xffe2bd, 2.6);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -2.6, right: 2.6, top: 2.6, bottom: -2.6, near: 0.5, far: 20 });
+sun.shadow.bias = -0.0002; sun.shadow.normalBias = 0.012;
+const SUN_OFF = new V3(4, 5.2, 3);
+scene.add(sun, sun.target);
+
+const SIZE = 26, SEG = 140;
+{
+  let g = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG); g.rotateX(-Math.PI / 2);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) p.setY(i, heightAt(p.getX(i), p.getZ(i)));
+  g = g.toNonIndexed(); g.computeVertexNormals();
+  const q = g.attributes.position, col = new Float32Array(q.count * 3);
+  const base = new THREE.Color(0xd8a46c), dark = new THREE.Color(0xb57d4b), light = new THREE.Color(0xf0cd98), c = new THREE.Color(), n = new V3();
+  for (let f = 0; f < q.count; f += 3) {
+    const x = (q.getX(f) + q.getX(f + 1) + q.getX(f + 2)) / 3, z = (q.getZ(f) + q.getZ(f + 1) + q.getZ(f + 2)) / 3;
+    const y = heightAt(x, z); normalAt(x, z, n);
+    c.copy(base).lerp(light, clamp(y * 2.5 + 0.25, 0, 0.7)).lerp(dark, clamp((1 - n.y) * 6 + (Math.sin(x * 3.1 + z * 2.3) * 0.5 + 0.5) * 0.12, 0, 0.55));
+    const j = 1 + (srand() - 0.5) * 0.05; c.multiplyScalar(j);
+    for (let k = 0; k < 3; k++) col.set([c.r, c.g, c.b], (f + k) * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const ground = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 }));
+  ground.receiveShadow = true; ground.name = 'ground'; scene.add(ground);
+  window.__ground = ground;
+}
+
+// ============================================================ rocks, ruin, plants (obstacles are circles)
+const OBST = [];
+const rockMats = [0xb98457, 0x9c6a45, 0xc8976a, 0x87593b].map(c => new THREE.MeshStandardMaterial({ color: c, flatShading: true, roughness: 0.9 }));
+function rock(x, z, r, squash = 0.6, tilt = 0.2) {
+  const g = new THREE.IcosahedronGeometry(r, 0), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const k = 0.82 + srand() * 0.36; p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * squash, p.getZ(i) * k); }
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, rockMats[(srand() * rockMats.length) | 0]);
+  m.position.set(x, heightAt(x, z) + r * squash * 0.35, z); m.rotation.set((srand() - .5) * tilt, srand() * TAU, (srand() - .5) * tilt);
+  m.castShadow = m.receiveShadow = true; scene.add(m);
+  OBST.push({ x, z, r: r * 0.95 });
+}
+rock(0.55, 0.35, 0.22, 0.55); rock(-0.9, -0.6, 0.3, 0.5); rock(-0.7, 1.4, 0.16, 0.7); rock(1.6, -1.0, 0.38, 0.45);
+rock(2.2, 1.6, 0.26, 0.6); rock(-2.0, 0.4, 0.42, 0.42); rock(-1.7, -2.1, 0.2, 0.7); rock(0.3, -2.3, 0.33, 0.5);
+rock(2.8, -0.2, 0.18, 0.8); rock(-0.2, 2.6, 0.36, 0.5); rock(-3.1, -0.9, 0.5, 0.4); rock(3.3, 2.8, 0.55, 0.4);
+for (let k = 0; k < 40; k++) { const a = srand() * TAU, d = 1 + srand() * 4; const x = Math.cos(a) * d, z = Math.sin(a) * d;
+  if (OBST.every(o => Math.hypot(o.x - x, o.z - z) > o.r + 0.1)) { rock(x, z, 0.03 + srand() * 0.05, 0.6, 0.6); OBST.pop(); } }
+{ // ruin: a toppled sandstone column with a carved glyph band, half buried
+  const tex = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d');
+    g.fillStyle = '#c99b68'; g.fillRect(0, 0, 256, 64); g.strokeStyle = '#7e5634'; g.lineWidth = 4;
+    for (let i = 0; i < 8; i++) { const x = 16 + i * 31; g.beginPath(); g.arc(x, 32, 9, 0, TAU); g.moveTo(x - 12, 16); g.lineTo(x + 12, 48); g.stroke(); g.fillStyle = '#7e5634'; g.fillRect(x - 2, 10, 4, 4); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.repeat.set(2, 1); return t; })();
+  const stone = new THREE.MeshStandardMaterial({ color: 0xd2a473, flatShading: true, roughness: 0.92 });
+  const band = new THREE.MeshStandardMaterial({ map: tex, flatShading: true, roughness: 0.9 });
+  const col = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.34, 1.6, 8), stone);
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.345, 0.345, 0.22, 8, 1, true), band); ring.position.y = 0.45;
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.2, 0.85), stone); cap.position.y = 0.85;
+  col.add(shaft, ring, cap); col.traverse(o => { o.castShadow = o.receiveShadow = true; });
+  col.rotation.set(0, 0.6, Math.PI / 2 - 0.08); col.position.set(-1.25, heightAt(-1.25, 2.1) + 0.12, 2.1); scene.add(col);
+  OBST.push({ x: -1.5, z: 1.75, r: 0.42 }, { x: -1.0, z: 2.45, r: 0.42 }, { x: -0.55, z: 3.0, r: 0.5 });
+  const block = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.32, 0.36), stone); block.position.set(1.15, heightAt(1.15, 2.4) + 0.08, 2.4); block.rotation.set(0.1, 0.4, 0.15);
+  block.castShadow = block.receiveShadow = true; scene.add(block); OBST.push({ x: 1.15, z: 2.4, r: 0.32 });
+}
+{ // dry grass tufts and twiggy shrubs (decor, walk-through)
+  const grass = new THREE.MeshStandardMaterial({ color: 0xb7a35c, flatShading: true, roughness: 1 });
+  const twig = new THREE.MeshStandardMaterial({ color: 0x7a5636, flatShading: true, roughness: 1 });
+  const blade = new THREE.ConeGeometry(0.012, 0.16, 3); blade.translate(0, 0.08, 0);
+  const stick = new THREE.CylinderGeometry(0.004, 0.007, 0.3, 4); stick.translate(0, 0.15, 0);
+  const tuft = (x, z, n, geo, mat, spread, lean, scale) => {
+    for (let i = 0; i < n; i++) { const m = new THREE.Mesh(geo, mat); const a = srand() * TAU, r = srand() * spread;
+      const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; m.position.set(px, heightAt(px, pz) - 0.01, pz);
+      m.rotation.set((srand() - .5) * lean, srand() * TAU, (srand() - .5) * lean); m.scale.setScalar(scale * (0.6 + srand() * 0.7)); m.castShadow = true; scene.add(m); }
+  };
+  for (let k = 0; k < 26; k++) { const a = srand() * TAU, d = 0.6 + srand() * 4.5; tuft(Math.cos(a) * d, Math.sin(a) * d, 9, blade, grass, 0.06, 0.9, 1); }
+  for (let k = 0; k < 7; k++) { const a = srand() * TAU, d = 1.2 + srand() * 3.5; tuft(Math.cos(a) * d, Math.sin(a) * d, 7, stick, twig, 0.05, 1.3, 1); }
+}
+function blockedAt(x, z, pad) {
+  if (Math.hypot(x, z) > 4.6) return true;
+  for (const o of OBST) if (Math.hypot(x - o.x, z - o.z) < o.r + pad) return true;
+  return false;
+}
+
+// ============================================================ dust
+const DUST = 260, dust = { pos: new Float32Array(DUST * 3), col: new Float32Array(DUST * 3), vel: new Float32Array(DUST * 3), life: new Float32Array(DUST), max: new Float32Array(DUST), next: 0 };
+const dustGeo = new THREE.BufferGeometry();
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dust.pos, 3)); dustGeo.setAttribute('color', new THREE.BufferAttribute(dust.col, 3));
+const dustPts = new THREE.Points(dustGeo, new THREE.PointsMaterial({ size: 0.022, vertexColors: true, transparent: true, depthWrite: false }));
+dustPts.frustumCulled = false; scene.add(dustPts);
+const SANDC = new THREE.Color(0xc79462);
+function puff(x, z, n = 24, power = 1) {
+  const y = heightAt(x, z);
+  for (let k = 0; k < n; k++) {
+    const i = dust.next; dust.next = (dust.next + 1) % DUST;
+    const a = Math.random() * TAU, sp = rand(0.1, 0.5) * power;
+    dust.pos.set([x + Math.cos(a) * 0.02, y + 0.01, z + Math.sin(a) * 0.02], i * 3);
+    dust.vel.set([Math.cos(a) * sp, rand(0.25, 0.9) * power, Math.sin(a) * sp], i * 3);
+    dust.life[i] = dust.max[i] = rand(0.5, 1.1);
+  }
+}
+function updateDust(dt) {
+  for (let i = 0; i < DUST; i++) {
+    if (dust.life[i] <= 0) { dust.pos[i * 3 + 1] = -99; continue; }
+    dust.life[i] -= dt; dust.vel[i * 3 + 1] -= 1.6 * dt;
+    for (let c = 0; c < 3; c++) { dust.vel[i * 3 + c] *= (1 - 1.8 * dt); dust.pos[i * 3 + c] += dust.vel[i * 3 + c] * dt; }
+    const t = dust.life[i] / dust.max[i];
+    dust.col[i * 3] = SANDC.r * (0.8 + t * 0.4); dust.col[i * 3 + 1] = SANDC.g * (0.8 + t * 0.4); dust.col[i * 3 + 2] = SANDC.b * (0.8 + t * 0.4);
+    if (t < 0.25) dust.pos[i * 3 + 1] -= dt * 0.4;
+  }
+  dustGeo.attributes.position.needsUpdate = true; dustGeo.attributes.color.needsUpdate = true;
+}
+
+// ============================================================ lizard model
+const PAL = JSON.parse($('#pal').textContent);
+const texLoader = new THREE.TextureLoader();
+const TEX = {};
+for (const [k, uri] of Object.entries(PAL)) {
+  const t = texLoader.load(uri); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false;
+  t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; TEX[k] = t;
+}
+const lizMat = new THREE.MeshStandardMaterial({ map: TEX.Desert, flatShading: true, roughness: 0.68, metalness: 0 });
+function b64ToBuf(s) { const bin = atob(s.trim()); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a.buffer; }
+const gltf = await new Promise((res, rej) => new GLTFLoader().parse(b64ToBuf($('#glb').textContent), '', res, rej));
+const CLIPS = Object.fromEntries(gltf.animations.map(c => [c.name, c]));
+const ONESHOT = new Set(['PushUps', 'Burrow', 'Emerge', 'Death']);
+
+const STATE_INFO = {
+  idle: ['Basking', 'calm'], wander: ['Wandering', 'calm'], display: ['Push-ups', 'hot'], flee: ['Fleeing', 'alert'],
+  burrow: ['Diving', 'alert'], hidden: ['Under the sand', 'hide'], emerge: ['Surfacing', 'hide'], manual: ['Preview', 'hot'], dead: ['Dead', 'hot'],
+};
+const NAMES = ['SL-01', 'SL-02', 'SL-03', 'SL-04', 'SL-05'];
+const HOMES = [[0.2, -0.3], [-1.2, 0.6], [1.3, 0.9], [-0.4, -1.4], [1.9, -1.9]];
+const sim = { lizards: [], focus: 0, slow: false, scare: true };
+const threat = { valid: false, pos: new V3(), t: -99, ring: null };
+{
+  const g = new THREE.RingGeometry(0.09, 0.11, 32); g.rotateX(-Math.PI / 2);
+  threat.ring = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x3a2414, transparent: true, opacity: 0.45, depthWrite: false }));
+  threat.ring.visible = false; scene.add(threat.ring);
+}
+const _n = new V3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _up = new V3(0, 1, 0);
+
+class Lizard {
+  constructor(i) {
+    this.i = i; this.name = NAMES[i];
+    this.home = new V3(HOMES[i][0], 0, HOMES[i][1]);
+    this.obj = new THREE.Group(); scene.add(this.obj);
+    const model = SkeletonUtils.clone(gltf.scene); this.obj.add(model);
+    model.traverse(o => { if (o.isMesh) { o.material = lizMat; o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
+    this.model = model;
+    this.mixer = new THREE.AnimationMixer(model);
+    this.act = {};
+    for (const [n, c] of Object.entries(CLIPS)) {
+      const a = this.mixer.clipAction(c);
+      if (ONESHOT.has(n)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+      a.enabled = true; a.setEffectiveWeight(0); a.play(); this.act[n] = a;
+    }
+    this.act.Walk.timeScale = 0; this.act.Run.timeScale = 0;
+    this.phase = Math.random(); this.animSpeed = 0; this.targetSpeed = 0;
+    this.one = null; this.oneW = 0; this.oneRelease = false;
+    this.pos = this.home.clone(); this.yaw = rand(0, TAU); this.tilt = new THREE.Quaternion();
+    this.manual = null; this.visible = true;
+    this.enter('idle');
+    this.place(1);
+  }
+  dispose() { scene.remove(this.obj); this.mixer.stopAllAction(); if (this.mound) scene.remove(this.mound); }
+  play(name) { // start a one-shot clip
+    if (this.one && this.one !== name) this.act[this.one].setEffectiveWeight(0);
+    const a = this.act[name]; a.reset(); a.setEffectiveWeight(1); a.play();
+    this.one = name; this.oneRelease = name === 'PushUps' || name === 'Emerge';
+    this.oneW = Math.max(this.oneW, 0.0001);
+  }
+  oneDone() { const a = this.act[this.one]; return !a || a.time >= a.getClip().duration - 1e-3; }
+  enter(s) {
+    this.state = s; this.t = 0;
+    switch (s) {
+      case 'idle': this.timer = rand(1.5, 4.5); if (Math.random() < 0.35) { this.play('PushUps'); this.state = 'display'; } break;
+      case 'wander': {
+        for (let k = 0; k < 20; k++) { const a = Math.random() * TAU, r = Math.sqrt(Math.random()) * 1.4; this.goal = new V3(this.home.x + Math.cos(a) * r, 0, this.home.z + Math.sin(a) * r); if (!blockedAt(this.goal.x, this.goal.z, 0.12)) break; }
+        this.run = Math.random() < 0.18; this.timer = 14; break;
+      }
+      case 'flee': this.timer = 0; break;
+      case 'burrow': this.play('Burrow'); this.timer = BURROW_S + 0.1; puff(this.pos.x, this.pos.z, 30, 0.8); break;
+      case 'hidden': {
+        this.setVisible(false);
+        let best = null;
+        for (let k = 0; k < 30; k++) { const a = Math.random() * TAU, r = 0.8 + Math.random() * 1.2; const p = new V3(this.pos.x + Math.cos(a) * r, 0, this.pos.z + Math.sin(a) * r);
+          if (blockedAt(p.x, p.z, 0.15)) continue; const d = threat.valid ? Math.hypot(p.x - threat.pos.x, p.z - threat.pos.z) : 9; if (!best || d > best.d) best = { p, d }; }
+        this.swimFrom = this.pos.clone(); this.swimTo = best ? best.p : this.pos.clone();
+        this.timer = Math.max(1.2, this.swimFrom.distanceTo(this.swimTo) / 0.7) + rand(0.4, 1.5);
+        this.swimT = 0; this.swimDur = this.timer - 0.4;
+        if (!this.mound) {
+          const g = new THREE.SphereGeometry(0.07, 7, 4, 0, TAU, 0, Math.PI / 2); g.scale(1, 0.35, 1.5);
+          this.mound = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xd19c66, flatShading: true, roughness: 1 })); this.mound.castShadow = true;
+        }
+        scene.add(this.mound); break;
+      }
+      case 'emerge': {
+        scene.remove(this.mound);
+        this.pos.copy(this.swimTo); const d = this.swimTo.clone().sub(this.swimFrom); this.yaw = Math.atan2(d.x, d.z);
+        this.setVisible(true); this.play('Emerge'); this.timer = BURROW_S + 0.1; puff(this.pos.x, this.pos.z, 30, 0.8); this.place(1); break;
+      }
+      case 'dead': break;
+    }
+  }
+  setVisible(v) { this.visible = v; this.model.visible = v; }
+  threatDist() { return threat.valid && sim.scare ? Math.hypot(threat.pos.x - this.pos.x, threat.pos.z - this.pos.z) : Infinity; }
+  steer(dir, speed, dt) {
+    // avoid rocks and the edge: push the heading away from nearby obstacles
+    const ahead = 0.3;
+    for (const o of OBST) {
+      const dx = this.pos.x + dir.x * ahead - o.x, dz = this.pos.z + dir.z * ahead - o.z, d = Math.hypot(dx, dz), lim = o.r + 0.18;
+      if (d < lim) { dir.x += dx / d * (lim - d) * 6; dir.z += dz / d * (lim - d) * 6; }
+    }
+    const r = Math.hypot(this.pos.x, this.pos.z); if (r > 4.0) { dir.x -= this.pos.x / r * (r - 4) * 4; dir.z -= this.pos.z / r * (r - 4) * 4; }
+    const want = Math.atan2(dir.x, dir.z), err = wrap(want - this.yaw);
+    this.yaw = wrap(this.yaw + clamp(err, -5.5 * dt, 5.5 * dt));
+    this.targetSpeed = Math.abs(err) > 1.0 ? speed * 0.25 : speed;
+  }
+  update(dt) {
+    this.t += dt; this.timer -= dt;
+    const td = this.threatDist();
+    this.targetSpeed = 0;
+    if (this.manual) this.updateManual(dt);
+    else {
+      if ((this.state === 'idle' || this.state === 'wander' || this.state === 'display') && td < 0.85) this.enter('flee');
+      switch (this.state) {
+        case 'display': if (this.oneDone()) this.enter('idle'); break;
+        case 'idle': if (this.timer <= 0) this.enter('wander'); break;
+        case 'wander': {
+          const to = this.goal.clone().sub(this.pos); to.y = 0;
+          if (to.length() < 0.08 || this.timer <= 0) { this.enter('idle'); break; }
+          this.steer(to.normalize(), this.run ? RUN : WALK, dt); break;
+        }
+        case 'flee': {
+          this.timer += dt;
+          if (td < 0.3 || this.timer > 2.6) { this.enter('burrow'); break; }
+          if (td > 1.7) { this.enter('idle'); break; }
+          const away = this.pos.clone().sub(threat.pos); away.y = 0; away.normalize();
+          away.applyAxisAngle(_up, Math.sin(this.t * 2.3 + this.i) * 0.6);
+          this.steer(away, RUN, dt); break;
+        }
+        case 'burrow': if (this.timer <= 0) this.enter('hidden'); break;
+        case 'hidden': {
+          this.swimT += dt; const k = clamp(this.swimT / this.swimDur, 0, 1);
+          const p = this.swimFrom.clone().lerp(this.swimTo, k);
+          const dir = this.swimTo.clone().sub(this.swimFrom);
+          this.mound.position.set(p.x, heightAt(p.x, p.z) - 0.005, p.z); this.mound.rotation.y = Math.atan2(dir.x, dir.z);
+          this.mound.visible = k < 1;
+          if (k < 1 && Math.random() < dt * 14) puff(p.x, p.z, 2, 0.35);
+          if (this.timer <= 0 && td > 0.85) this.enter('emerge');
+          break;
+        }
+        case 'emerge': if (this.timer <= 0) this.enter('idle'); break;
+      }
+    }
+    // speed + move
+    this.animSpeed = damp(this.animSpeed, this.targetSpeed, 9, dt);
+    if (this.animSpeed > 0.002 && this.visible && !this.manual) {
+      const nx = this.pos.x + Math.sin(this.yaw) * this.animSpeed * dt, nz = this.pos.z + Math.cos(this.yaw) * this.animSpeed * dt;
+      if (!blockedAt(nx, nz, 0.06)) { this.pos.x = nx; this.pos.z = nz; }
+      else this.animSpeed *= 0.5;
+    }
+    this.blend(dt);
+    this.mixer.update(dt);
+    this.place(dt);
+  }
+  updateManual(dt) {
+    const c = this.manual;
+    if (c === 'Walk') this.targetSpeed = WALK; else if (c === 'Run') this.targetSpeed = RUN;
+    if (ONESHOT.has(c) && this.oneDone() && this.t > 1.6 && c !== 'Death' && c !== 'Burrow') { this.play(c); this.t = 0; }
+  }
+  setManual(c) {
+    this.setVisible(true); if (this.mound) scene.remove(this.mound);
+    if (!c) { this.manual = null; if (this.one) { this.oneRelease = true; } this.enter('idle'); return; }
+    this.manual = c; this.state = 'manual'; this.t = 0;
+    if (ONESHOT.has(c)) this.play(c);
+    else if (this.one) this.oneRelease = true;
+  }
+  blend(dt) {
+    // one-shot weight
+    if (this.one) {
+      const a = this.act[this.one];
+      const fadeOut = this.oneRelease && a.time >= a.getClip().duration - 0.12;
+      const releaseNow = this.oneRelease && (this.manual ? !ONESHOT.has(this.manual) || this.manual !== this.one : false);
+      this.oneW = damp(this.oneW, fadeOut || releaseNow ? 0 : 1, 14, dt);
+      if ((fadeOut || releaseNow) && this.oneW < 0.01) { a.setEffectiveWeight(0); this.one = null; this.oneW = 0; }
+      else a.setEffectiveWeight(this.oneW);
+    }
+    // locomotion weights from speed, walk/run cycles kept in phase
+    const v = this.animSpeed; let wI, wW, wR, dur;
+    const dW = CLIPS.Walk.duration, dR = CLIPS.Run.duration;
+    if (v <= WALK) { const t = v / WALK; wI = 1 - t; wW = t; wR = 0; dur = dW; }
+    else { const t = clamp((v - WALK) / (RUN - WALK), 0, 1); wI = 0; wW = 1 - t; wR = t; dur = dW + (dR - dW) * t; }
+    if (v > 0.003 || this.manual === 'Walk' || this.manual === 'Run') this.phase = (this.phase + dt / dur) % 1;
+    this.act.Walk.time = this.phase * dW; this.act.Run.time = this.phase * dR;
+    const k = 1 - this.oneW;
+    this.act.Idle.setEffectiveWeight(wI * k); this.act.Walk.setEffectiveWeight(wW * k); this.act.Run.setEffectiveWeight(wR * k);
+  }
+  place(dt) {
+    const y = heightAt(this.pos.x, this.pos.z);
+    normalAt(this.pos.x, this.pos.z, _n);
+    _q.setFromUnitVectors(_up, _n); _q2.setFromAxisAngle(_up, this.yaw);
+    this.tilt.slerp(_q.multiply(_q2), 1 - Math.exp(-10 * dt));
+    this.obj.position.set(this.pos.x, y, this.pos.z); this.obj.quaternion.copy(this.tilt);
+  }
+}
+
+// ============================================================ UI
+const specList = $('#specList');
+function buildSpecList() {
+  specList.innerHTML = '';
+  sim.lizards.forEach((l, i) => {
+    const b = document.createElement('button'); b.className = 'spec'; b.type = 'button';
+    b.innerHTML = `<span class="id">${l.name}</span><span class="chip">—</span><span class="meta">—</span>`;
+    b.addEventListener('click', () => { selectFocus(i); });
+    specList.appendChild(b); l.row = b;
+  });
+  refreshSpec();
+}
+function refreshSpec() {
+  sim.lizards.forEach((l, i) => {
+    if (!l.row) return;
+    let [label, sev] = STATE_INFO[l.state] || [l.state, 'calm'];
+    if (l.manual) label = 'Preview: ' + l.manual;
+    const chip = l.row.querySelector('.chip'); chip.textContent = label; chip.dataset.sev = sev;
+    const sp = l.visible ? l.animSpeed : 0;
+    l.row.querySelector('.meta').textContent = `${sp.toFixed(2)} m/s · home ${Math.hypot(l.pos.x - l.home.x, l.pos.z - l.home.z).toFixed(1)} m away`;
+    l.row.setAttribute('aria-current', i === sim.focus ? 'true' : 'false');
+  });
+}
+function selectFocus(i) {
+  sim.focus = i; refreshSpec();
+  const m = sim.lizards[i].manual || '';
+  document.querySelectorAll('#clips button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === m ? 'true' : 'false'));
+}
+function setCount(n) {
+  while (sim.lizards.length > n) sim.lizards.pop().dispose();
+  while (sim.lizards.length < n) sim.lizards.push(new Lizard(sim.lizards.length));
+  sim.focus = Math.min(sim.focus, n - 1); buildSpecList(); selectFocus(sim.focus);
+}
+const press = (sel, btn) => document.querySelectorAll(sel).forEach(b => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
+document.querySelectorAll('#countSeg button').forEach(b => b.addEventListener('click', () => { press('#countSeg button', b); setCount(+b.dataset.n); }));
+document.querySelectorAll('#paletteSeg button').forEach(b => b.addEventListener('click', () => { press('#paletteSeg button', b); lizMat.map = TEX[b.dataset.p]; lizMat.needsUpdate = true; }));
+document.querySelectorAll('#clips button').forEach(b => b.addEventListener('click', () => { press('#clips button', b); sim.lizards[sim.focus].setManual(b.dataset.c || null); $('#optFollow').checked = true; }));
+$('#optScare').addEventListener('change', e => { sim.scare = e.target.checked; threat.ring.visible = sim.scare && threat.valid; });
+$('#optSlow').addEventListener('change', e => { sim.slow = e.target.checked; });
+const panel = $('#panel'), sheetBtn = $('#sheetBtn');
+const touch = window.matchMedia('(pointer:coarse)').matches;
+if (touch) $('#hint').innerHTML = '<b>Tap</b> near a lizard to stomp and scare it';
+if (window.matchMedia('(max-width:700px)').matches) { panel.dataset.collapsed = 'true'; sheetBtn.setAttribute('aria-expanded', 'false'); }
+sheetBtn.addEventListener('click', () => { const c = panel.dataset.collapsed !== 'true'; panel.dataset.collapsed = c ? 'true' : 'false'; sheetBtn.setAttribute('aria-expanded', c ? 'false' : 'true'); });
+
+// pointer: hover = your hand's shadow (threat), click = stomp
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function groundPoint(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObject(window.__ground, false)[0];
+  return hit ? hit.point : null;
+}
+function setThreat(p) {
+  threat.valid = !!p; if (p) { threat.pos.set(p.x, heightAt(p.x, p.z), p.z); threat.ring.position.set(p.x, threat.pos.y + 0.004, p.z); threat.t = performance.now(); }
+  threat.ring.visible = threat.valid && sim.scare;
+}
+renderer.domElement.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') setThreat(groundPoint(e)); });
+renderer.domElement.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') setThreat(null); });
+let down = null;
+renderer.domElement.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!down) return; const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), quick = performance.now() - down.t < 450; down = null;
+  if (moved > 6 || !quick) return;
+  const p = groundPoint(e); if (!p) return;
+  puff(p.x, p.z, 40, 1.3); setThreat(p);
+  if (!sim.scare) return;
+  for (const l of sim.lizards) {
+    if (l.manual || !l.visible || ['burrow', 'hidden', 'emerge', 'dead'].includes(l.state)) continue;
+    const d = Math.hypot(l.pos.x - p.x, l.pos.z - p.z);
+    if (d < 0.45) l.enter('burrow'); else if (d < 1.6) l.enter('flee');
+  }
+  if (touch) setTimeout(() => setThreat(null), 1500);
+});
+
+// ============================================================ loop
+function resize() { const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+window.addEventListener('resize', resize);
+setCount(3);
+{ // frame the first lizard from a side with no rocks in the way
+  const l = sim.lizards[0]; controls.target.set(l.pos.x, 0.06 + heightAt(l.pos.x, l.pos.z), l.pos.z);
+  let best = 0.6, bestScore = -1;
+  for (let k = 0; k < 16; k++) {
+    const a = k / 16 * TAU; let score = 0;
+    for (let s = 0.25; s <= 1.3; s += 0.15) { const x = l.pos.x + Math.sin(a) * s, z = l.pos.z + Math.cos(a) * s; if (!blockedAt(x, z, 0.3)) score++; }
+    if (score > bestScore) { bestScore = score; best = a; }
+  }
+  camera.position.set(l.pos.x + Math.sin(best) * 1.25, controls.target.y + 0.5, l.pos.z + Math.cos(best) * 1.25);
+}
+const clock = new THREE.Clock(); let uiT = 0; const prevT = new V3();
+function step(dt) { for (const l of sim.lizards) l.update(dt); updateDust(dt); }
+window.__advance = s => { for (let t = 0; t < s; t += 1 / 60) step(1 / 60); };
+function frame() {
+  const raw = Math.min(clock.getDelta(), 1 / 30), dt = raw * (sim.slow ? 0.3 : 1);
+  step(dt);
+  const f = sim.lizards[sim.focus];
+  if ($('#optFollow').checked && f) {
+    const tp = f.visible ? f.pos : (f.mound && f.mound.parent ? f.mound.position : f.pos);
+    prevT.copy(controls.target);
+    controls.target.x = damp(controls.target.x, tp.x, 3, raw); controls.target.z = damp(controls.target.z, tp.z, 3, raw);
+    controls.target.y = damp(controls.target.y, heightAt(tp.x, tp.z) + 0.06, 3, raw);
+    camera.position.add(prevT.sub(controls.target).negate());
+  }
+  controls.autoRotate = $('#optSpin').checked; controls.autoRotateSpeed = 1.6;
+  controls.update();
+  sun.target.position.copy(controls.target); sun.position.copy(controls.target).add(SUN_OFF);
+  renderer.render(scene, camera);
+  uiT -= raw; if (uiT <= 0) { uiT = 0.2; refreshSpec(); }
+  requestAnimationFrame(frame);
+}
+$('#boot').remove();
+requestAnimationFrame(frame);
+window.__sim = sim; window.__threat = setThreat; window.__cam = { camera, controls };
+</script>
