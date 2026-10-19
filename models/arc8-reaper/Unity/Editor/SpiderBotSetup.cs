@@ -19,8 +19,8 @@ public static class SpiderBotSetup
         if (fbx == null) { Debug.LogError("SpiderBot.fbx not found in the project."); return; }
         string root = Path.GetDirectoryName(fbx).Replace('\\', '/');
         string texDir = root + "/Textures";
-        Directory.CreateDirectory(root + "/Materials");
-        Directory.CreateDirectory(root + "/Prefabs");
+        EnsureFolder(root, "Materials");
+        EnsureFolder(root, "Prefabs");
 
         // texture import settings
         foreach (var guid in AssetDatabase.FindAssets("T_SpiderBot t:Texture2D", new[] { texDir }))
@@ -58,6 +58,11 @@ public static class SpiderBotSetup
         }
         AssetDatabase.SaveAssets();
         Debug.Log($"SpiderBot: built 3 prefabs in {root}/Prefabs");
+    }
+
+    static void EnsureFolder(string parent, string name)
+    {
+        if (!AssetDatabase.IsValidFolder($"{parent}/{name}")) AssetDatabase.CreateFolder(parent, name);
     }
 
     static Material BuildMaterial(string path, Texture2D albedo, Texture2D emission, Texture2D ms)
