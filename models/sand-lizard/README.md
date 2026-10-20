@@ -16,7 +16,7 @@ A small, flat-shaded desert lizard in a Synty-style look: banded back, dorsal cr
 ## Specs
 - ~2.5k triangles, 1.4k verts, 1 material, flat shading
 - Size: 0.5 m nose to tail at scale 1. Scale the prefab freely; speeds and AI distances scale with it
-- Spine, tail and limbs are smooth-skinned (limbs are continuous tubes that bend at elbow, knee and wrist); head, jaw and tongue are rigid
+- One continuous skin for body and legs: each limb is stitched into the body wall and bends smoothly at shoulder/hip, elbow/knee and wrist; head, jaw and tongue are rigid
 - Bones: `Root > Body > Chest > Neck > Head > Jaw, Tongue`, `Body > Hips > Tail1-4`, `Chest > UpperArm > Forearm > Hand` (L/R), `Hips > Thigh > Shin > Foot` (L/R)
 
 ## Animations (30 fps, in place)

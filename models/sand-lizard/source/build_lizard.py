@@ -12,6 +12,7 @@ OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.p
 TEX = os.path.join(OUT, "Textures")
 os.makedirs(TEX, exist_ok=True)
 NAME = "SandLizard"
+SMOOTH_LIMBS = os.environ.get("SMOOTH_LIMBS", "0") == "1"  # experiment: smooth-shaded limbs
 
 # ---------------------------------------------------------------- palette atlas
 GRID, TS = 4, 256
@@ -116,7 +117,10 @@ def spike(name, base, direction, length, w, key, bone, xhint=(1, 0, 0), h=None):
     return seg(name, base - d * 0.002, base + d * length, w, h or w, key, bone, taper=(0.08, 0.08), xhint=xhint)
 
 
-def tube(name, rings, key, sides=8, hint=(0, 0, 1), key_fn=None):
+TUBE_RING0 = {}
+
+
+def tube(name, rings, key, sides=8, hint=(0, 0, 1), key_fn=None, smooth_shade=False, cap0=True):
     """Lofted, capped tube through rings of (point, half_w, half_h, {bone: weight}).
     Ring frames use parallel transport so the tube never twists; weights blend smoothly across joints."""
     pts = [Vector(r[0]) for r in rings]; n = len(pts)
@@ -136,11 +140,14 @@ def tube(name, rings, key, sides=8, hint=(0, 0, 1), key_fn=None):
         for j in range(sides):
             j2 = (j + 1) % sides
             faces.append((bm.faces.new((vs[i][j], vs[i][j2], vs[i + 1][j2], vs[i + 1][j])), key_fn(i, j) if key_fn else key))
-    faces.append((bm.faces.new(list(reversed(vs[0]))), key)); faces.append((bm.faces.new(vs[-1]), key))
+    TUBE_RING0[name] = [v.co.copy() for v in vs[0]]
+    if cap0: faces.append((bm.faces.new(list(reversed(vs[0]))), key))
+    faces.append((bm.faces.new(vs[-1]), key))
     for f, k in faces:
         u, v = swatch_uv(k)
         for l in f.loops: l[uv].uv = (u, v)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    for f in bm.faces: f.smooth = smooth_shade
     me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
     ob = bpy.data.objects.new(name, me); coll.objects.link(ob)
     groups = {}
@@ -186,21 +193,22 @@ def weights_at(y):
             return {n0: 1 - t, n1: t}
 
 
+LOFT_NR, LOFT_NS = 31, 8
+LOFT_YS = [KEYS[0][0] + (KEYS[-1][0] - KEYS[0][0]) * (i / (LOFT_NR - 1)) ** 1.08 for i in range(LOFT_NR)]
+
+
+def loft_vertex(i, j):
+    y = LOFT_YS[i]; zc, w, h = profile(y)
+    a = 2 * math.pi * j / LOFT_NS + math.pi / LOFT_NS
+    s, c = math.sin(a), math.cos(a)
+    return Vector((w * c, y, zc + h * s * (0.7 if s < 0 else 1.0) + (0.1 * h if s > 0.9 else 0)))
+
+
 def build_loft():
-    NR, NS = 31, 8
-    y0, y1 = KEYS[0][0], KEYS[-1][0]
-    ys = [y0 + (y1 - y0) * (i / (NR - 1)) ** 1.08 for i in range(NR)]
+    NR, NS = LOFT_NR, LOFT_NS
+    ys = LOFT_YS
     bm = bmesh.new()
-    rings = []
-    for y in ys:
-        zc, w, h = profile(y)
-        ring = []
-        for j in range(NS):
-            a = 2 * math.pi * j / NS + math.pi / NS
-            s, c = math.sin(a), math.cos(a)
-            zz = h * s * (0.7 if s < 0 else 1.0) + (0.1 * h if s > 0.9 else 0)
-            ring.append(bm.verts.new((w * c, y, zc + zz)))
-        rings.append(ring)
+    rings = [[bm.verts.new(loft_vertex(i, j)) for j in range(NS)] for i in range(NR)]
     bm.verts.ensure_lookup_table()
     uv = bm.loops.layers.uv.new("UVMap")
     face_keys = []
@@ -263,6 +271,7 @@ seg("Tongue", (0, -0.13, HZ - 0.007), (0, -0.19, HZ - 0.007), 0.0048, 0.002, "TO
 
 # ---------------------------------------------------------------- legs (sprawled)
 LEGS = []
+SEAMS = []
 for side, sx in (("L", 1), ("R", -1)):
     for kind in ("Front", "Rear"):
         if kind == "Front":
@@ -280,21 +289,35 @@ for side, sx in (("L", 1), ("R", -1)):
                          up=up, lo=lo, hand=hand, parent=parent))
         u1, u2 = (E - S).normalized(), (W - E).normalized()
         L1, L2 = (E - S).length, (W - E).length
+        # The limb is stitched into the body skin: a 2x2-face patch of the body wall (side and lower-side faces at
+        # the ring nearest the joint) is removed after joining and its 8-vertex rim is bridged to the limb's open
+        # first ring. Weights fade from the body bone to the limb bone across the bridge.
+        i0 = min(range(1, LOFT_NR - 1), key=lambda i: abs(LOFT_YS[i] - S.y))
+        cols = (6, 7, 0) if sx > 0 else (5, 4, 3)
+        grid = [[loft_vertex(i0 + r, c) for c in cols] for r in (-1, 0, 1)]
+        hole = [grid[0][0], grid[0][1], grid[0][2], grid[1][2], grid[2][2], grid[2][1], grid[2][0], grid[1][0]]
+        xs = 0.924 * profile(S.y)[1]
+        ts = (xs - abs(S.x)) / max(abs(u1.x), 0.3)
+        f = 1.0 if kind == "Front" else 1.22
+        r0 = Vector((grid[1][1].x + sx * 0.0055, S.y, S.z + (0.003 if kind == "Front" else 0.0005)))
+        root = [(r0, .0118 * f, (.0108 if kind == "Front" else .0098) * f, {parent: .45, up: .55}),
+                (S + u1 * (ts + 0.012), .0103 * f, .0094 * f, {parent: .1, up: .9})]
+        SEAMS.append(dict(limb=f"{up}_limb", hole=hole, center=grid[1][1]))
         if kind == "Front":  # (point, half-width, half-height, weights): continuous limb, joints blended
-            rs = [(S - u1 * 0.008, .0105, .0095, {parent: .6, up: .4}), (S + u1 * 0.004, .0102, .0092, {parent: .15, up: .85}),
-                  (S + u1 * L1 * 0.45, .0092, .0085, {up: 1}), (E - u1 * 0.006, .0080, .0076, {up: .8, lo: .2}),
+            rs = root + [
+                  (S + u1 * L1 * 0.66, .0088, .0082, {up: 1}), (E - u1 * 0.006, .0080, .0076, {up: .8, lo: .2}),
                   (E, .0079, .0077, {up: .5, lo: .5}), (E + u2 * 0.006, .0072, .0068, {up: .2, lo: .8}),
                   (E + u2 * L2 * 0.55, .0060, .0056, {lo: 1}), (W - u2 * 0.004, .0050, .0047, {lo: .8, hand: .2}),
                   (W + u2 * 0.003, .0050, .0046, {lo: .4, hand: .6}), (W + u2 * 0.0075, .0056, .0042, {lo: .1, hand: .9})]
             pad, toe_r = (0.009, 0.0075, 0.0036), (.0018, .0010)
         else:
-            rs = [(S - u1 * 0.010, .0150, .0130, {parent: .6, up: .4}), (S + u1 * 0.006, .0145, .0128, {parent: .15, up: .85}),
-                  (S + u1 * L1 * 0.45, .0125, .0112, {up: 1}), (E - u1 * 0.007, .0095, .0090, {up: .8, lo: .2}),
+            rs = root + [
+                  (S + u1 * L1 * 0.64, .0118, .0106, {up: 1}), (E - u1 * 0.007, .0095, .0090, {up: .8, lo: .2}),
                   (E, .0093, .0091, {up: .5, lo: .5}), (E + u2 * 0.007, .0086, .0082, {up: .2, lo: .8}),
                   (E + u2 * L2 * 0.55, .0072, .0066, {lo: 1}), (W - u2 * 0.004, .0058, .0054, {lo: .85, hand: .15}),
                   (W + u2 * 0.003, .0056, .0052, {lo: .4, hand: .6}), (W + u2 * 0.0075, .0062, .0046, {lo: .1, hand: .9})]
             pad, toe_r = (0.011, 0.009, 0.0040), (.0021, .0011)
-        tube(f"{up}_limb", rs, "MAIN", sides=8, hint=(0, 0, 1))
+        tube(f"{up}_limb", rs, "MAIN", sides=8, hint=(0, 0, 1), smooth_shade=SMOOTH_LIMBS, cap0=False)
         # palm pad: a flattened low-poly dome under the wrist, toes fanning out of its front edge
         pc = W + hd * (pad[0] * 0.45) + Vector((0, 0, -0.0045))
         bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=8, v_segments=4, radius=1.0)
@@ -320,7 +343,38 @@ for p in parts: p.select_set(True)
 bpy.context.view_layer.objects.active = parts[0]
 bpy.ops.object.join()
 mesh = bpy.context.active_object; mesh.name = f"{NAME}_Mesh"; mesh.data.name = f"{NAME}_Mesh"
-for poly in mesh.data.polygons: poly.use_smooth = False
+
+
+def stitch_limbs(me):
+    from mathutils import kdtree
+    bm = bmesh.new(); bm.from_mesh(me); bm.verts.ensure_lookup_table()
+    kd = kdtree.KDTree(len(bm.verts))
+    for v in bm.verts: kd.insert(v.co, v.index)
+    kd.balance()
+
+    def find(p):
+        co, idx, d = kd.find(p)
+        assert d < 1e-5, f"seam vertex not found ({d})"
+        return bm.verts[idx]
+    uv = bm.loops.layers.uv.active; mu, mv = swatch_uv("MAIN")
+    new_faces = []
+    seams = [([find(p) for p in sm["hole"]], [find(p) for p in TUBE_RING0[sm["limb"]]], find(sm["center"])) for sm in SEAMS]
+    bmesh.ops.delete(bm, geom=[c for _, _, c in seams], context='VERTS')
+    for H, R, _ in seams:
+        n = len(H)
+        best = min(((sum((H[m].co - R[(k + d * m) % n].co).length for m in range(n)), k, d)
+                    for k in range(n) for d in (1, -1)))
+        _, k, d = best
+        for m in range(n):
+            f = bm.faces.new((H[m], H[(m + 1) % n], R[(k + d * (m + 1)) % n], R[(k + d * m) % n]))
+            for l in f.loops: l[uv].uv = (mu, mv)
+            new_faces.append(f)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(me); bm.free()
+    return len(new_faces)
+
+
+print("stitched faces", stitch_limbs(mesh.data))
 
 make_textures()
 mat = bpy.data.materials.new(f"M_{NAME}_Desert")
