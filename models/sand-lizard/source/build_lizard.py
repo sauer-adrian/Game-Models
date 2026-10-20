@@ -116,6 +116,42 @@ def spike(name, base, direction, length, w, key, bone, xhint=(1, 0, 0), h=None):
     return seg(name, base - d * 0.002, base + d * length, w, h or w, key, bone, taper=(0.08, 0.08), xhint=xhint)
 
 
+def tube(name, rings, key, sides=8, hint=(0, 0, 1), key_fn=None):
+    """Lofted, capped tube through rings of (point, half_w, half_h, {bone: weight}).
+    Ring frames use parallel transport so the tube never twists; weights blend smoothly across joints."""
+    pts = [Vector(r[0]) for r in rings]; n = len(pts)
+    tans = [(pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]).normalized() for i in range(n)]
+    N = Vector(hint); N = (N - tans[0] * N.dot(tans[0])).normalized()
+    bm = bmesh.new(); vs = []
+    for i in range(n):
+        if i > 0:
+            N = tans[i - 1].rotation_difference(tans[i]) @ N
+            N = (N - tans[i] * N.dot(tans[i])).normalized()
+        B = tans[i].cross(N); _, w, h, _ = rings[i]
+        vs.append([bm.verts.new(pts[i] + B * (w * math.cos(2 * math.pi * j / sides + math.pi / sides))
+                                + N * (h * math.sin(2 * math.pi * j / sides + math.pi / sides))) for j in range(sides)])
+    uv = bm.loops.layers.uv.new("UVMap")
+    faces = []
+    for i in range(n - 1):
+        for j in range(sides):
+            j2 = (j + 1) % sides
+            faces.append((bm.faces.new((vs[i][j], vs[i][j2], vs[i + 1][j2], vs[i + 1][j])), key_fn(i, j) if key_fn else key))
+    faces.append((bm.faces.new(list(reversed(vs[0]))), key)); faces.append((bm.faces.new(vs[-1]), key))
+    for f, k in faces:
+        u, v = swatch_uv(k)
+        for l in f.loops: l[uv].uv = (u, v)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
+    ob = bpy.data.objects.new(name, me); coll.objects.link(ob)
+    groups = {}
+    for i, r in enumerate(rings):
+        for b, w in r[3].items():
+            if b not in groups: groups[b] = ob.vertex_groups.new(name=b)
+            groups[b].add([i * sides + j for j in range(sides)], w, 'REPLACE')
+    parts.append(ob)
+    return ob
+
+
 smooth = lambda x: (lambda c: c * c * (3 - 2 * c))(min(1.0, max(0.0, x)))
 
 # ---------------------------------------------------------------- body loft (smooth-skinned along the spine)
@@ -233,29 +269,50 @@ for side, sx in (("L", 1), ("R", -1)):
             S = Vector((sx * 0.030, -0.058, 0.044)); E = Vector((sx * 0.072, -0.050, 0.048))
             W = Vector((sx * 0.080, -0.078, 0.009)); hd = Vector((sx * 0.55, -1, 0)).normalized()
             names = (f"UpperArm_{side}", f"Forearm_{side}", f"Hand_{side}"); parent = "Chest"
-            thick = ((0.022, 0.019), (0.016, 0.014)); toes = (0.014, 0.019, 0.022, 0.020, 0.013); spread = 50
+            toes = (0.013, 0.018, 0.021, 0.019, 0.012); spread = 50
         else:
             S = Vector((sx * 0.030, 0.050, 0.043)); E = Vector((sx * 0.080, 0.035, 0.052))
             W = Vector((sx * 0.088, 0.072, 0.009)); hd = Vector((sx * 1.0, 0.25, 0)).normalized()
             names = (f"Thigh_{side}", f"Shin_{side}", f"Foot_{side}"); parent = "Hips"
-            thick = ((0.03, 0.026), (0.019, 0.017)); toes = (0.016, 0.022, 0.027, 0.034, 0.020); spread = 55
+            toes = (0.015, 0.021, 0.026, 0.032, 0.019); spread = 55
         up, lo, hand = names
         LEGS.append(dict(name=f"{kind}{side}", side=sx, kind=kind, S=S, E=E, W=W, hd=hd,
                          up=up, lo=lo, hand=hand, parent=parent))
-        seg(up + "_m", S, E, thick[0][0], thick[0][1], "MAIN", up, taper=(0.8, 0.8), bevel=0.002, xhint=(0, 1, 0), extend=0.004)
-        box(lo + "_elbow", (0.016, 0.016, 0.016), T(E), "MAIN_DK", lo, bevel=0.003)
-        seg(lo + "_m", E, W, thick[1][0], thick[1][1], "MAIN", lo, taper=(0.7, 0.7), bevel=0.0015, xhint=(0, 1, 0), extend=0.003)
-        palm0 = W + Vector((0, 0, -0.004))
-        seg(hand + "_palm", palm0 - hd * 0.004, palm0 + hd * 0.011, 0.005, 0.015, "MAIN", hand, taper=(0.8, 1.15), xhint=(0, 0, 1))
-        base = palm0 + hd * 0.009
+        u1, u2 = (E - S).normalized(), (W - E).normalized()
+        L1, L2 = (E - S).length, (W - E).length
+        if kind == "Front":  # (point, half-width, half-height, weights): continuous limb, joints blended
+            rs = [(S - u1 * 0.008, .0105, .0095, {parent: .6, up: .4}), (S + u1 * 0.004, .0102, .0092, {parent: .15, up: .85}),
+                  (S + u1 * L1 * 0.45, .0092, .0085, {up: 1}), (E - u1 * 0.006, .0080, .0076, {up: .8, lo: .2}),
+                  (E, .0079, .0077, {up: .5, lo: .5}), (E + u2 * 0.006, .0072, .0068, {up: .2, lo: .8}),
+                  (E + u2 * L2 * 0.55, .0060, .0056, {lo: 1}), (W - u2 * 0.004, .0050, .0047, {lo: .8, hand: .2}),
+                  (W + u2 * 0.003, .0050, .0046, {lo: .4, hand: .6}), (W + u2 * 0.0075, .0056, .0042, {lo: .1, hand: .9})]
+            pad, toe_r = (0.009, 0.0075, 0.0036), (.0018, .0010)
+        else:
+            rs = [(S - u1 * 0.010, .0150, .0130, {parent: .6, up: .4}), (S + u1 * 0.006, .0145, .0128, {parent: .15, up: .85}),
+                  (S + u1 * L1 * 0.45, .0125, .0112, {up: 1}), (E - u1 * 0.007, .0095, .0090, {up: .8, lo: .2}),
+                  (E, .0093, .0091, {up: .5, lo: .5}), (E + u2 * 0.007, .0086, .0082, {up: .2, lo: .8}),
+                  (E + u2 * L2 * 0.55, .0072, .0066, {lo: 1}), (W - u2 * 0.004, .0058, .0054, {lo: .85, hand: .15}),
+                  (W + u2 * 0.003, .0056, .0052, {lo: .4, hand: .6}), (W + u2 * 0.0075, .0062, .0046, {lo: .1, hand: .9})]
+            pad, toe_r = (0.011, 0.009, 0.0040), (.0021, .0011)
+        tube(f"{up}_limb", rs, "MAIN", sides=8, hint=(0, 0, 1))
+        # palm pad: a flattened low-poly dome under the wrist, toes fanning out of its front edge
+        pc = W + hd * (pad[0] * 0.45) + Vector((0, 0, -0.0045))
+        bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=8, v_segments=4, radius=1.0)
+        side_v = Vector((hd.y, -hd.x, 0))
+        Mp = Matrix(((side_v.x * pad[1], hd.x * pad[0], 0), (side_v.y * pad[1], hd.y * pad[0], 0), (0, 0, pad[2]))).to_4x4()
+        Mp.translation = pc
+        bmesh.ops.transform(bm, matrix=Mp, verts=bm.verts)
+        finish(bm, f"{hand}_pad", "MAIN", hand)
         for k, L in enumerate(toes):
             ang = math.radians(-spread + spread * 2 * k / 4) * (1 if sx > 0 else -1)
             d = Matrix.Rotation(ang, 3, 'Z') @ hd
-            p0 = base + Vector((d.y, -d.x, 0)) * 0.002 * (k - 2)
-            tip = p0 + d * L + Vector((0, 0, -0.0025))
-            seg(f"{hand}_toe{k}", p0, tip, 0.003, 0.0038, "MAIN", hand, taper=(0.55, 0.55), xhint=(0, 0, 1))
-            seg(f"{hand}_claw{k}", tip - d * 0.001, tip + d * 0.0045 + Vector((0, 0, -0.0015)), 0.0024, 0.0028, "CLAW", hand,
-                taper=(0.15, 0.15), xhint=(0, 0, 1))
+            p0 = pc + d * (pad[0] * 0.6) + Vector((0, 0, 0.0002))
+            tip = p0 + d * L + Vector((0, 0, -0.0018))
+            tube(f"{hand}_toe{k}", [(p0 - d * 0.002, toe_r[0], toe_r[0] * 0.85, {hand: 1}),
+                                     (p0.lerp(tip, 0.55), (toe_r[0] + toe_r[1]) / 2, toe_r[0] * 0.7, {hand: 1}),
+                                     (tip, toe_r[1], toe_r[1] * 0.85, {hand: 1})], "MAIN", sides=5, hint=(0, 0, 1))
+            cyl(f"{hand}_claw{k}", toe_r[1] * 1.05, 0.0045, frame_from(tip + d * 0.0019 + Vector((0, 0, -0.0005)), d + Vector((0, 0, -0.25)), (0, 0, 1)),
+                "CLAW", hand, seg=4, r2=0.0001)
 
 # ---------------------------------------------------------------- join + material
 bpy.ops.object.select_all(action='DESELECT')

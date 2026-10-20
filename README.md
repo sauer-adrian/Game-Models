@@ -7,7 +7,7 @@ Low-poly, Synty-style 3D models for Unity, each one rigged, animated and generat
 | Model | Preview | What it is | Tris | Clips |
 |---|---|---|---|---|
 | [ARC-8 "Reaper" Crawler](models/arc8-reaper/) | <img src="models/arc8-reaper/Previews/SpiderBot_Hero.png" width="220"> | Hostile mech spider: blade legs, serrated fangs, glowing core. 3 color schemes. | 4.4k | Idle, Walk, Run, Threat, Attack, Hit, Death |
-| [Sand Lizard](models/sand-lizard/) | <img src="models/sand-lizard/Previews/SandLizard_Hero.png" width="220"> | Small desert critter with ambient AI: wanders, does push-ups, flees, dives into the sand. 3 color schemes. | 2k | Idle, Walk, Run, TurnLeft, TurnRight, PushUps, Burrow, Emerge, Death |
+| [Sand Lizard](models/sand-lizard/) | <img src="models/sand-lizard/Previews/SandLizard_Hero.png" width="220"> | Small desert critter with ambient AI: wanders, does push-ups, flees, dives into the sand. 3 color schemes. | 2.5k | Idle, Walk, Run, TurnLeft, TurnRight, PushUps, Burrow, Emerge, Death |
 
 ## Demos
 

@@ -14,9 +14,9 @@ A small, flat-shaded desert lizard in a Synty-style look: banded back, dorsal cr
 | `source/` | `build_lizard.py` generates everything above; `render_lizard.py` makes the previews |
 
 ## Specs
-- ~2k triangles, 1.2k verts, 1 material, flat shading
+- ~2.5k triangles, 1.4k verts, 1 material, flat shading
 - Size: 0.5 m nose to tail at scale 1. Scale the prefab freely; speeds and AI distances scale with it
-- Spine and tail are smooth-skinned; head, jaw, tongue and limbs are rigid
+- Spine, tail and limbs are smooth-skinned (limbs are continuous tubes that bend at elbow, knee and wrist); head, jaw and tongue are rigid
 - Bones: `Root > Body > Chest > Neck > Head > Jaw, Tongue`, `Body > Hips > Tail1-4`, `Chest > UpperArm > Forearm > Hand` (L/R), `Hips > Thigh > Shin > Foot` (L/R)
 
 ## Animations (30 fps, in place)
