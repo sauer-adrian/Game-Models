@@ -249,8 +249,14 @@ const SIZE = 26, SEG = 140;
 const OBST = [];
 const rockMats = [0xb98457, 0x9c6a45, 0xc8976a, 0x87593b].map(c => new THREE.MeshStandardMaterial({ color: c, flatShading: true, roughness: 0.9 }));
 function rock(x, z, r, squash = 0.6, tilt = 0.2) {
-  const g = new THREE.IcosahedronGeometry(r, 0), p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) { const k = 0.82 + srand() * 0.36; p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * squash, p.getZ(i) * k); }
+  // the geometry stores each face's corners separately, so jitter by position: every face sharing a corner
+  // moves it the same way and the stone stays closed (bigger stones get one subdivision for a rounder shape)
+  const g = new THREE.IcosahedronGeometry(r, r > 0.12 ? 1 : 0), p = g.attributes.position, jit = new Map();
+  for (let i = 0; i < p.count; i++) {
+    const key = p.getX(i).toFixed(4) + ',' + p.getY(i).toFixed(4) + ',' + p.getZ(i).toFixed(4);
+    let k = jit.get(key); if (k === undefined) { k = 0.86 + srand() * 0.24; jit.set(key, k); }
+    p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * squash, p.getZ(i) * k);
+  }
   g.computeVertexNormals();
   const m = new THREE.Mesh(g, rockMats[(srand() * rockMats.length) | 0]);
   m.position.set(x, heightAt(x, z) + r * squash * 0.35, z); m.rotation.set((srand() - .5) * tilt, srand() * TAU, (srand() - .5) * tilt);
