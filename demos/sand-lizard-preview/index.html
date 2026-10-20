@@ -304,34 +304,117 @@ function blockedAt(x, z, pad) {
   return false;
 }
 
-// ============================================================ dust
-const DUST = 260, dust = { pos: new Float32Array(DUST * 3), col: new Float32Array(DUST * 3), vel: new Float32Array(DUST * 3), life: new Float32Array(DUST), max: new Float32Array(DUST), next: 0 };
-const dustGeo = new THREE.BufferGeometry();
-dustGeo.setAttribute('position', new THREE.BufferAttribute(dust.pos, 3)); dustGeo.setAttribute('color', new THREE.BufferAttribute(dust.col, 3));
-const dustPts = new THREE.Points(dustGeo, new THREE.PointsMaterial({ size: 0.022, vertexColors: true, transparent: true, depthWrite: false }));
-dustPts.frustumCulled = false; scene.add(dustPts);
-const SANDC = new THREE.Color(0xc79462);
+// ============================================================ sand effects: dust, grit, mounds, dig scars
+const GROUNDC = new THREE.Color(0xd8a46c), GROUND_RGB = [GROUNDC.r, GROUNDC.g, GROUNDC.b];
+class SandParticles {
+  constructor(n, size, cA, cB, drag, grav, settle) {
+    Object.assign(this, { n, drag, grav, settle, next: 0 });
+    this.pos = new Float32Array(n * 3); this.vel = new Float32Array(n * 3); this.base = new Float32Array(n * 3); this.col = new Float32Array(n * 3);
+    this.life = new Float32Array(n); this.max = new Float32Array(n); this.landed = new Uint8Array(n);
+    this.cA = new THREE.Color(cA); this.cB = new THREE.Color(cB);
+    this.geo = new THREE.BufferGeometry();
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3)); this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    this.pts = new THREE.Points(this.geo, new THREE.PointsMaterial({ size, vertexColors: true, depthWrite: false }));
+    this.pts.frustumCulled = false; scene.add(this.pts);
+    for (let i = 0; i < n; i++) this.pos[i * 3 + 1] = -99;
+  }
+  emit(x, y, z, vx, vy, vz, life) {
+    const i = this.next, c = _c.copy(this.cA).lerp(this.cB, Math.random());
+    this.next = (this.next + 1) % this.n;
+    this.pos.set([x, y, z], i * 3); this.vel.set([vx, vy, vz], i * 3); this.base.set([c.r, c.g, c.b], i * 3);
+    this.life[i] = this.max[i] = life; this.landed[i] = 0;
+  }
+  update(dt) {
+    const P = this.pos, V = this.vel;
+    for (let i = 0; i < this.n; i++) {
+      if (this.life[i] <= 0) { P[i * 3 + 1] = -99; continue; }
+      this.life[i] -= dt; const t = this.life[i] / this.max[i];
+      if (!this.landed[i]) {
+        V[i * 3 + 1] -= this.grav * dt;
+        for (let c = 0; c < 3; c++) { V[i * 3 + c] *= (1 - this.drag * dt); P[i * 3 + c] += V[i * 3 + c] * dt; }
+        const gy = heightAt(P[i * 3], P[i * 3 + 2]) + 0.002;
+        if (this.settle && P[i * 3 + 1] < gy) { P[i * 3 + 1] = gy; this.landed[i] = 1; this.life[i] = Math.min(this.life[i], 0.9); this.max[i] = Math.max(this.max[i], 0.9); }
+      }
+      // fade into the ground colour: landed grit sinks into the sand, airborne dust thins out
+      const k = this.landed[i] ? clamp(t * 1.2, 0, 1) : clamp(t * 2.5, 0, 1);
+      for (let c = 0; c < 3; c++) this.col[i * 3 + c] = this.base[i * 3 + c] * k + GROUND_RGB[c] * (1 - k);
+      if (!this.settle && t < 0.3) P[i * 3 + 1] -= dt * 0.3;
+    }
+    this.geo.attributes.position.needsUpdate = true; this.geo.attributes.color.needsUpdate = true;
+  }
+}
+const _c = new THREE.Color();
+const dustFx = new SandParticles(360, 0.018, 0xeccda0, 0xd2a06a, 2.2, 1.2, false);
+const gritFx = new SandParticles(420, 0.026, 0xc7905a, 0x9c6b40, 0.5, 6.5, true);
 function puff(x, z, n = 24, power = 1) {
   const y = heightAt(x, z);
   for (let k = 0; k < n; k++) {
-    const i = dust.next; dust.next = (dust.next + 1) % DUST;
-    const a = Math.random() * TAU, sp = rand(0.1, 0.5) * power;
-    dust.pos.set([x + Math.cos(a) * 0.02, y + 0.01, z + Math.sin(a) * 0.02], i * 3);
-    dust.vel.set([Math.cos(a) * sp, rand(0.25, 0.9) * power, Math.sin(a) * sp], i * 3);
-    dust.life[i] = dust.max[i] = rand(0.5, 1.1);
+    const a = Math.random() * TAU, sp = rand(0.08, 0.4) * power;
+    dustFx.emit(x + Math.cos(a) * 0.03, y + 0.01, z + Math.sin(a) * 0.03, Math.cos(a) * sp, rand(0.15, 0.6) * power, Math.sin(a) * sp, rand(0.5, 1.1));
   }
 }
-function updateDust(dt) {
-  for (let i = 0; i < DUST; i++) {
-    if (dust.life[i] <= 0) { dust.pos[i * 3 + 1] = -99; continue; }
-    dust.life[i] -= dt; dust.vel[i * 3 + 1] -= 1.6 * dt;
-    for (let c = 0; c < 3; c++) { dust.vel[i * 3 + c] *= (1 - 1.8 * dt); dust.pos[i * 3 + c] += dust.vel[i * 3 + c] * dt; }
-    const t = dust.life[i] / dust.max[i];
-    dust.col[i * 3] = SANDC.r * (0.8 + t * 0.4); dust.col[i * 3 + 1] = SANDC.g * (0.8 + t * 0.4); dust.col[i * 3 + 2] = SANDC.b * (0.8 + t * 0.4);
-    if (t < 0.25) dust.pos[i * 3 + 1] -= dt * 0.4;
+// sand flicked out by digging legs: out to the side, backwards and up
+function kick(x, z, side, fwd, n, power = 1) {
+  const y = heightAt(x, z) + 0.01;
+  for (let k = 0; k < n; k++) {
+    const sp = rand(0.25, 0.7) * power, back = rand(0.1, 0.5) * power;
+    gritFx.emit(x, y, z, side.x * sp - fwd.x * back + rand(-.05, .05), rand(0.5, 1.15) * power, side.z * sp - fwd.z * back + rand(-.05, .05), rand(0.9, 1.6));
   }
-  dustGeo.attributes.position.needsUpdate = true; dustGeo.attributes.color.needsUpdate = true;
+  for (let k = 0; k < n / 2; k++) dustFx.emit(x, y, z, side.x * rand(0.05, 0.25), rand(0.1, 0.35), side.z * rand(0.05, 0.25), rand(0.4, 0.9));
 }
+const updateSandFx = dt => { dustFx.update(dt); gritFx.update(dt); };
+
+// a low, irregular sand hump whose rim sits flush with the ground; scaled per use (x = half width, z = half length, y = height)
+const HUMP_GEO = (() => {
+  const R = 5, S = 12, pts = [new V3(0, 1, 0)], cols = [], fresh = new THREE.Color(0xe7bb86), idx = [];
+  for (let r = 1; r <= R; r++) for (let j = 0; j < S; j++) {
+    const rr = r / R, a = (j + (r % 2) * 0.5) / S * TAU, jr = rr * (r < R ? 0.92 + srand() * 0.16 : 1);
+    pts.push(new V3(Math.cos(a) * jr, r === R ? 0 : (1 - rr * rr) ** 2 * (0.88 + srand() * 0.24), Math.sin(a) * jr));
+  }
+  const id = (r, j) => r === 0 ? 0 : 1 + (r - 1) * S + ((j % S) + S) % S;
+  for (let j = 0; j < S; j++) idx.push(0, id(1, j + 1), id(1, j));
+  for (let r = 1; r < 5; r++) for (let j = 0; j < S; j++) {
+    const o = r % 2;   // rings are staggered by half a step
+    idx.push(id(r, j), id(r, j + 1), id(r + 1, j + o)); idx.push(id(r, j + 1), id(r + 1, j + 1 + o), id(r + 1, j + o));
+  }
+  let g = new THREE.BufferGeometry().setFromPoints(pts); g.setIndex(idx); g = g.toNonIndexed(); g.computeVertexNormals();
+  const p = g.attributes.position, c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) { c.copy(fresh).lerp(GROUNDC, clamp(Math.hypot(p.getX(i), p.getZ(i)) * 1.1, 0, 1)); cols.push(c.r, c.g, c.b); }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  return g;
+})();
+const HUMP_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 });
+
+// dig scars: patches of freshly turned, darker sand that fade away
+const SCAR_GEO = (() => {
+  const S = 14, pts = [new V3(0, 0, 0)], idx = [];
+  for (let j = 0; j < S; j++) { const a = j / S * TAU, r = 0.75 + srand() * 0.35; pts.push(new V3(Math.cos(a) * r, 0, Math.sin(a) * r)); }
+  for (let j = 0; j < S; j++) idx.push(0, 1 + (j + 1) % S, 1 + j);
+  const g = new THREE.BufferGeometry().setFromPoints(pts); g.setIndex(idx); g.computeVertexNormals(); return g;
+})();
+const scars = Array.from({ length: 10 }, () => {
+  const m = new THREE.Mesh(SCAR_GEO, new THREE.MeshStandardMaterial({ color: 0xb98652, roughness: 1, transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  m.receiveShadow = true; m.visible = false; m.userData.life = 0; scene.add(m); return m;
+});
+let scarNext = 0;
+const _sq = new THREE.Quaternion(), _sq2 = new THREE.Quaternion(), _sn = new V3();
+function addScar(x, z, yaw, size = 1) {
+  const m = scars[scarNext]; scarNext = (scarNext + 1) % scars.length;
+  normalAt(x, z, _sn); _sq.setFromUnitVectors(_up0, _sn); _sq2.setFromAxisAngle(_up0, yaw);
+  m.position.set(x, heightAt(x, z) + 0.001, z); m.quaternion.copy(_sq.multiply(_sq2));
+  m.userData = { life: 9, size }; m.visible = true;
+}
+function updateScars(dt) {
+  for (const m of scars) {
+    if (!m.visible) continue;
+    const u = m.userData; u.life -= dt;
+    if (u.life <= 0) { m.visible = false; continue; }
+    const grow = clamp((9 - u.life) / 0.6, 0, 1);
+    m.scale.set(0.12 * u.size * (0.6 + 0.4 * grow), 1, 0.22 * u.size * (0.6 + 0.4 * grow));
+    m.material.opacity = 0.38 * clamp(u.life / 3, 0, 1);
+  }
+}
+const _up0 = new V3(0, 1, 0);
 
 // ============================================================ lizard model
 const PAL = JSON.parse($('#pal').textContent);
@@ -361,7 +444,7 @@ const threat = { valid: false, pos: new V3(), t: -99, ring: null };
   threat.ring.visible = false; scene.add(threat.ring);
 }
 const _n = new V3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _up = new V3(0, 1, 0);
-const _up2 = new V3(), _ax = new V3(), _qw = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+const _up2 = new V3(), _ax = new V3(), _qw = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _v1 = new V3(), _v2 = new V3(), _v3 = new V3();
 
 class Lizard {
   constructor(i) {
@@ -371,6 +454,7 @@ class Lizard {
     const model = SkeletonUtils.clone(gltf.scene); this.obj.add(model);
     model.traverse(o => { if (o.isMesh) { o.material = lizMat; o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
     this.model = model;
+    this.hump = new THREE.Mesh(HUMP_GEO, HUMP_MAT); this.hump.castShadow = this.hump.receiveShadow = true; this.hump.visible = false; scene.add(this.hump);
     this.mixer = new THREE.AnimationMixer(model);
     this.act = {};
     for (const [n, c] of Object.entries(CLIPS)) {
@@ -388,7 +472,7 @@ class Lizard {
     this.enter('idle');
     this.place(1);
   }
-  dispose() { scene.remove(this.obj); this.mixer.stopAllAction(); if (this.mound) scene.remove(this.mound); }
+  dispose() { scene.remove(this.obj); this.mixer.stopAllAction(); scene.remove(this.hump); }
   play(name) { // start a one-shot clip
     if (this.one && this.one !== name) this.act[this.one].setEffectiveWeight(0);
     const a = this.act[name]; a.reset(); a.setEffectiveWeight(1); a.play();
@@ -405,7 +489,7 @@ class Lizard {
         this.run = Math.random() < 0.18; this.timer = 14; break;
       }
       case 'flee': this.timer = 0; break;
-      case 'burrow': this.play('Burrow'); this.timer = BURROW_S + 0.1; puff(this.pos.x, this.pos.z, 30, 0.8); break;
+      case 'burrow': this.play('Burrow'); this.timer = BURROW_S + 0.1; this.scarred = false; break;
       case 'hidden': {
         this.setVisible(false);
         let best = null;
@@ -413,17 +497,13 @@ class Lizard {
           if (blockedAt(p.x, p.z, 0.15)) continue; const d = threat.valid ? Math.hypot(p.x - threat.pos.x, p.z - threat.pos.z) : 9; if (!best || d > best.d) best = { p, d }; }
         this.swimFrom = this.pos.clone(); this.swimTo = best ? best.p : this.pos.clone();
         this.timer = Math.max(1.2, this.swimFrom.distanceTo(this.swimTo) / 0.7) + rand(0.4, 1.5);
-        this.swimT = 0; this.swimDur = this.timer - 0.4;
-        if (!this.mound) {
-          const g = new THREE.SphereGeometry(0.07, 7, 4, 0, TAU, 0, Math.PI / 2); g.scale(1, 0.35, 1.5);
-          this.mound = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xd19c66, flatShading: true, roughness: 1 })); this.mound.castShadow = true;
-        }
-        scene.add(this.mound); break;
+        this.swimT = 0; this.swimDur = this.timer - 0.4; this.swimPos = this.pos.clone();
+        break;
       }
       case 'emerge': {
-        scene.remove(this.mound);
         this.pos.copy(this.swimTo); const d = this.swimTo.clone().sub(this.swimFrom); this.yaw = Math.atan2(d.x, d.z);
-        this.setVisible(true); this.play('Emerge'); this.timer = BURROW_S + 0.1; puff(this.pos.x, this.pos.z, 30, 0.8); this.place(1); break;
+        this.setVisible(true); this.play('Emerge'); this.timer = BURROW_S + 0.1; puff(this.pos.x, this.pos.z, 18, 0.6); this.place(1);
+        addScar(this.pos.x, this.pos.z, this.yaw, 1.0); break;
       }
       case 'dead': break;
     }
@@ -474,9 +554,11 @@ class Lizard {
           this.swimT += dt; const k = clamp(this.swimT / this.swimDur, 0, 1);
           const p = this.swimFrom.clone().lerp(this.swimTo, k);
           const dir = this.swimTo.clone().sub(this.swimFrom);
-          this.mound.position.set(p.x, heightAt(p.x, p.z) - 0.005, p.z); this.mound.rotation.y = Math.atan2(dir.x, dir.z);
-          this.mound.visible = k < 1;
-          if (k < 1 && Math.random() < dt * 14) puff(p.x, p.z, 2, 0.35);
+          this.swimPos.copy(p); this.swimYaw = Math.atan2(dir.x, dir.z);
+          if (k < 1 && Math.random() < dt * 16) {   // sand trickles off the travelling mound
+            const sd = _v1.set(Math.cos(this.swimYaw), 0, -Math.sin(this.swimYaw)).multiplyScalar(Math.random() < 0.5 ? 1 : -1);
+            kick(p.x, p.z, sd, _v2.set(Math.sin(this.swimYaw), 0, Math.cos(this.swimYaw)), 2, 0.35);
+          }
           if (this.timer <= 0 && td > 0.85) this.enter('emerge');
           break;
         }
@@ -496,6 +578,55 @@ class Lizard {
     this.mixer.update(dt);
     this.place(dt);
     this.bendIntoTurn();
+    this.sandFx(dt);
+  }
+  digProgress(name) {
+    if (this.one !== name) return -1;
+    const a = this.act[name]; return clamp(a.time / a.getClip().duration, 0, 1);
+  }
+  sandFx(dt) {
+    // the hump: sand piling up around the body as it dives, the mound that swims under the surface,
+    // and the heap it bursts out of when surfacing
+    const fwd = _v2.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)), side = _v3.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    const H = this.humpState || (this.humpState = { h: 0, w: 0.06, l: 0.1, x: this.pos.x, z: this.pos.z, yaw: this.yaw });
+    let h = 0, w = H.w, l = H.l, cx = this.pos.x, cz = this.pos.z, yaw = this.yaw, rate = 10;
+    const kb = this.digProgress('Burrow'), ke = this.digProgress('Emerge');
+    if (this.state === 'hidden' && !this.manual) {
+      cx = this.swimPos.x; cz = this.swimPos.z; yaw = this.swimYaw ?? yaw;
+      h = 0.015 + 0.003 * Math.sin(this.t * 13); w = 0.045; l = 0.085; rate = 4;
+    } else if (kb >= 0) {
+      const kk = clamp((kb - 0.1) / 0.65, 0, 1); h = 0.034 * kk * kk * (3 - 2 * kk); w = 0.065 + 0.05 * kb; l = 0.12 + 0.1 * kb;
+      cx += fwd.x * (-0.03 + 0.06 * kb); cz += fwd.z * (-0.03 + 0.06 * kb);
+      if (!this.manual && kb < 0.8) {  // dives head-first: keeps moving forward into the sand
+        const nx = this.pos.x + fwd.x * 0.07 * dt, nz = this.pos.z + fwd.z * 0.07 * dt; if (!blockedAt(nx, nz, 0.06)) { this.pos.x = nx; this.pos.z = nz; }
+      }
+      if (kb < 0.85) {
+        this.kickT = (this.kickT || 0) - dt;
+        if (this.kickT <= 0) {
+          this.kickT = 0.06;
+          const back = -0.04 - 0.05 * kb, s = Math.random() < 0.5 ? 1 : -1;
+          kick(this.pos.x + side.x * s * 0.07 + fwd.x * back, this.pos.z + side.z * s * 0.07 + fwd.z * back, _v1.copy(side).multiplyScalar(s), fwd, 5, 1);
+        }
+      }
+      if (kb > 0.35 && !this.scarred) { this.scarred = true; addScar(this.pos.x + fwd.x * 0.02, this.pos.z + fwd.z * 0.02, this.yaw, 1.1); puff(this.pos.x, this.pos.z, 16, 0.5); }
+    } else if (ke >= 0) {
+      h = 0.032 * (1 - clamp((ke - 0.4) / 0.6, 0, 1)); w = 0.11 - 0.03 * ke; l = 0.22 - 0.06 * ke;
+      cx += fwd.x * -0.02; cz += fwd.z * -0.02;
+      if (!this.manual && ke < 0.7) {
+        const nx = this.pos.x + fwd.x * 0.05 * dt, nz = this.pos.z + fwd.z * 0.05 * dt; if (!blockedAt(nx, nz, 0.06)) { this.pos.x = nx; this.pos.z = nz; }
+      }
+      if (ke < 0.6 && Math.random() < dt * 30) {  // sand pouring off the back as it pushes up
+        const a = Math.random() * TAU; kick(cx + Math.cos(a) * w * 0.8, cz + Math.sin(a) * l * 0.6, _v1.set(Math.cos(a), 0, Math.sin(a)), fwd, 2, 0.45);
+      }
+    } else rate = 2.5;   // the heap settles back down
+    H.h = damp(H.h, h, rate, dt); H.w = damp(H.w, w, 6, dt); H.l = damp(H.l, l, 6, dt);
+    if (this.state === 'hidden') { H.x = cx; H.z = cz; } else { H.x = damp(H.x, cx, 12, dt); H.z = damp(H.z, cz, 12, dt); }
+    H.yaw = yaw;
+    const m = this.hump;
+    m.visible = H.h > 0.0008;
+    if (!m.visible) return;
+    normalAt(H.x, H.z, _n); _q.setFromUnitVectors(_up, _n); _q2.setFromAxisAngle(_up, H.yaw);
+    m.position.set(H.x, heightAt(H.x, H.z) - 0.0015, H.z); m.quaternion.copy(_q.multiply(_q2)); m.scale.set(H.w, H.h, H.l);
   }
   updateManual(dt) {
     const c = this.manual;
@@ -503,7 +634,7 @@ class Lizard {
     if (ONESHOT.has(c) && this.oneDone() && this.t > 1.6 && c !== 'Death' && c !== 'Burrow') { this.play(c); this.t = 0; }
   }
   setManual(c) {
-    this.setVisible(true); if (this.mound) scene.remove(this.mound);
+    this.setVisible(true);
     if (!c) { this.manual = null; if (this.one) { this.oneRelease = true; } this.enter('idle'); return; }
     this.manual = c; this.state = 'manual'; this.t = 0;
     if (ONESHOT.has(c)) this.play(c);
@@ -625,7 +756,7 @@ renderer.domElement.addEventListener('pointerup', e => {
   if (!down) return; const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), quick = performance.now() - down.t < 450; down = null;
   if (moved > 6 || !quick) return;
   const p = groundPoint(e); if (!p) return;
-  puff(p.x, p.z, 40, 1.3); setThreat(p);
+  puff(p.x, p.z, 40, 1.3); for (let k = 0; k < 8; k++) { const a = k / 8 * TAU; kick(p.x, p.z, new V3(Math.cos(a), 0, Math.sin(a)), new V3(0, 0, 0), 3, 0.8); } setThreat(p);
   if (!sim.scare) return;
   for (const l of sim.lizards) {
     if (l.manual || !l.visible || ['burrow', 'hidden', 'emerge', 'dead'].includes(l.state)) continue;
@@ -650,14 +781,14 @@ setCount(3);
   camera.position.set(l.pos.x + Math.sin(best) * 1.25, controls.target.y + 0.5, l.pos.z + Math.cos(best) * 1.25);
 }
 const clock = new THREE.Clock(); let uiT = 0; const prevT = new V3();
-function step(dt) { for (const l of sim.lizards) l.update(dt); updateDust(dt); }
+function step(dt) { for (const l of sim.lizards) l.update(dt); updateSandFx(dt); updateScars(dt); }
 window.__advance = s => { for (let t = 0; t < s; t += 1 / 60) step(1 / 60); };
 function frame() {
   const raw = Math.min(clock.getDelta(), 1 / 30), dt = raw * (sim.slow ? 0.3 : 1);
   step(dt);
   const f = sim.lizards[sim.focus];
   if ($('#optFollow').checked && f) {
-    const tp = f.visible ? f.pos : (f.mound && f.mound.parent ? f.mound.position : f.pos);
+    const tp = f.visible ? f.pos : (f.hump.visible ? f.hump.position : f.pos);
     prevT.copy(controls.target);
     controls.target.x = damp(controls.target.x, tp.x, 3, raw); controls.target.z = damp(controls.target.z, tp.z, 3, raw);
     controls.target.y = damp(controls.target.y, heightAt(tp.x, tp.z) + 0.06, 3, raw);

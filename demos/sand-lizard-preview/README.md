@@ -2,7 +2,8 @@
 
 Browser preview of the [Sand Lizard](../../models/sand-lizard/) in a small desert patch with dunes, rocks and a toppled column.
 
-- Same behaviour as the Unity `SandLizardAI`: basking, wandering around a home spot, push-up displays, fleeing, diving into the sand, swimming under the surface (a moving sand mound) and popping up somewhere safer.
+- Same behaviour as the Unity `SandLizardAI`: basking, wandering around a home spot, push-up displays, fleeing, diving into the sand, swimming under the surface and popping up somewhere safer.
+- Sand effects: grit flicked out by the digging legs, sand piling over the body as it dives head-first, a mound that travels under the surface, a heap it bursts out of, and darker dig scars that fade.
 - Your cursor is a threat; click to stomp. On phones, tap.
 - Turning: slow pivots play the stepping turn clips paced to the real turn rate; moving turns curve the spine and tail.
 - The clip panel plays any of the 9 animations on the selected lizard, with walk and run kept in phase while blending.
