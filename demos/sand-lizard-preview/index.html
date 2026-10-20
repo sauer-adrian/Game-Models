@@ -445,6 +445,9 @@ const threat = { valid: false, pos: new V3(), t: -99, ring: null };
 }
 const _n = new V3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _up = new V3(0, 1, 0);
 const _up2 = new V3(), _ax = new V3(), _qw = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _v1 = new V3(), _v2 = new V3(), _v3 = new V3();
+const _A = new V3(), _B = new V3(), _C = new V3(), _T = new V3(), _gu = new V3(), _gp = new V3(), _gB2 = new V3(), _gT2 = new V3(), _gd1 = new V3(), _gd2 = new V3(), _gn = new V3(), _gUp = new V3(), _gUp2 = new V3();
+const _rq1 = new THREE.Quaternion(), _rq2 = new THREE.Quaternion(), _rq3 = new THREE.Quaternion();
+const _gq1 = new THREE.Quaternion(), _gq2 = new THREE.Quaternion(), _gq3 = new THREE.Quaternion(), _gq4 = new THREE.Quaternion(), _gqh = new THREE.Quaternion();
 
 class Lizard {
   constructor(i) {
@@ -465,6 +468,11 @@ class Lizard {
     for (const n of ['Walk', 'Run', 'TurnLeft', 'TurnRight']) this.act[n].timeScale = 0;
     this.turnPhase = 0; this.yawRate = 0; this.wantYawRate = 0;
     this.bones = ['Chest', 'Neck', 'Hips', 'Tail1', 'Tail2', 'Tail3', 'Tail4'].map(n => model.getObjectByName(n));
+    this.chains = [['UpperArm_L', 'Forearm_L', 'Hand_L'], ['UpperArm_R', 'Forearm_R', 'Hand_R'], ['Thigh_L', 'Shin_L', 'Foot_L'], ['Thigh_R', 'Shin_R', 'Foot_R']]
+      .map(c => c.map(n => model.getObjectByName(n)));
+    this.tail = ['Tail1', 'Tail2', 'Tail3', 'Tail4'].map(n => model.getObjectByName(n));
+    this.neck = model.getObjectByName('Neck'); this.headB = model.getObjectByName('Head');
+    this.groundW = 1;
     this.phase = Math.random(); this.animSpeed = 0; this.targetSpeed = 0;
     this.one = null; this.oneW = 0; this.oneRelease = false;
     this.pos = this.home.clone(); this.yaw = rand(0, TAU); this.tilt = new THREE.Quaternion();
@@ -578,6 +586,7 @@ class Lizard {
     this.mixer.update(dt);
     this.place(dt);
     this.bendIntoTurn();
+    this.groundFit(dt);
     this.sandFx(dt);
   }
   digProgress(name) {
@@ -682,11 +691,79 @@ class Lizard {
     });
   }
   place(dt) {
-    const y = heightAt(this.pos.x, this.pos.z);
-    normalAt(this.pos.x, this.pos.z, _n);
+    // fit the body to the ground under its four feet (front feet ~8 cm ahead, rear ~6 cm behind, ~9 cm out),
+    // and lift it over dune crests so the belly never cuts in
+    const c = Math.cos(this.yaw), s = Math.sin(this.yaw), px = this.pos.x, pz = this.pos.z;
+    const h = (f, r) => heightAt(px + s * f + c * r, pz + c * f - s * r);
+    const FL = h(0.08, 0.09), FR = h(0.08, -0.09), BL = h(-0.065, 0.09), BR = h(-0.065, -0.09);
+    const slopeF = ((FL + FR) - (BL + BR)) / 2 / 0.145, slopeR = ((FL + BL) - (FR + BR)) / 2 / 0.18;
+    _n.set(0, 1, 0).addScaledVector(_v1.set(s, 0, c), -slopeF).addScaledVector(_v3.set(c, 0, -s), -slopeR).normalize();
+    const avg = (FL + FR + BL + BR) / 4, mid = Math.max(heightAt(px, pz), h(0.03, 0), h(-0.04, 0));
+    const y = Math.max(avg, mid - 0.012);
     _q.setFromUnitVectors(_up, _n); _q2.setFromAxisAngle(_up, this.yaw);
-    this.tilt.slerp(_q.multiply(_q2), 1 - Math.exp(-10 * dt));
-    this.obj.position.set(this.pos.x, y, this.pos.z); this.obj.quaternion.copy(this.tilt);
+    const k = 1 - Math.exp(-10 * dt);
+    this.tilt.slerp(_q.multiply(_q2), k);
+    this.placeY = this.placeY === undefined || k >= 1 ? y : damp(this.placeY, y, 12, dt);
+    this.obj.position.set(px, this.placeY, pz); this.obj.quaternion.copy(this.tilt);
+  }
+  rotateWorld(bone, q) {   // pre-multiply a world-space rotation onto a bone
+    bone.getWorldQuaternion(_rq1); bone.parent.getWorldQuaternion(_rq2);
+    bone.quaternion.copy(_rq2.invert().multiply(_rq3.copy(q).multiply(_rq1)));
+    bone.updateMatrixWorld(true);
+  }
+  groundFit(dt) {
+    // live ground contact on uneven sand: feet re-solved onto the real surface (two-bone IK),
+    // feet tilted to the slope, tail and snout lifted where they would cut into the sand
+    const off = !this.visible || (this.one && (this.one === 'Burrow' || this.one === 'Emerge' || this.one === 'Death') && this.oneW > 0.05);
+    this.groundW = damp(this.groundW, off ? 0 : 1, 10, dt);
+    const w = this.groundW; if (w < 0.01 || window.__noGround) return;
+    this.model.updateMatrixWorld(true);
+    const O = this.obj.position, up = _gUp.set(0, 1, 0).applyQuaternion(this.obj.quaternion);
+    const planeY = (x, z) => O.y - (up.x * (x - O.x) + up.z * (z - O.z)) / up.y;
+    for (const [a, b, c] of this.chains) {
+      if (!a || !b || !c) continue;
+      a.getWorldPosition(_A); b.getWorldPosition(_B); c.getWorldPosition(_C); c.getWorldQuaternion(_gqh);
+      const d = clamp(heightAt(_C.x, _C.z) - planeY(_C.x, _C.z), -0.035, 0.035) * w;
+      _T.copy(_C); _T.y += d;
+      const L1 = _A.distanceTo(_B), L2 = _B.distanceTo(_C);
+      const u = _gu.subVectors(_T, _A); const dist = clamp(u.length(), Math.abs(L1 - L2) + 1e-4, (L1 + L2) * 0.999); u.normalize();
+      const pole = _gp.subVectors(_B, _A); pole.addScaledVector(u, -pole.dot(u)); if (pole.lengthSq() < 1e-10) pole.copy(up); pole.normalize();
+      const ca = clamp((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1), ang = Math.acos(ca);
+      const B2 = _gB2.copy(_A).addScaledVector(u, Math.cos(ang) * L1).addScaledVector(pole, Math.sin(ang) * L1);
+      const T2 = _gT2.copy(_A).addScaledVector(u, dist);
+      this.rotateWorld(a, _gq3.setFromUnitVectors(_gd1.subVectors(_B, _A).normalize(), _gd2.subVectors(B2, _A).normalize()));
+      c.getWorldPosition(_C);
+      this.rotateWorld(b, _gq3.setFromUnitVectors(_gd1.subVectors(_C, B2).normalize(), _gd2.subVectors(T2, B2).normalize()));
+      // keep the foot's own orientation, tilted from the body's ground plane onto the slope under it
+      normalAt(T2.x, T2.z, _gn); _gq3.setFromUnitVectors(up, _gn); _gq4.identity().slerp(_gq3, w);
+      c.getWorldQuaternion(_gq1); _gq2.copy(_gq4).multiply(_gqh).multiply(_gq1.invert()); this.rotateWorld(c, _gq2);
+    }
+    // tail: lift each segment just enough that its end rests on the sand instead of cutting through
+    const clear = [0.013, 0.010, 0.007, 0.0035];
+    for (let i = 0; i < 4; i++) {
+      const bone = this.tail[i]; if (!bone) continue;
+      bone.getWorldPosition(_A);
+      if (i < 3) this.tail[i + 1].getWorldPosition(_B);
+      else { this.tail[2].getWorldPosition(_gp); _B.copy(_A).add(_gd1.subVectors(_A, _gp).normalize().multiplyScalar(0.065)); }
+      const len = _A.distanceTo(_B), g = heightAt(_B.x, _B.z) + clear[i];
+      if (_B.y >= g || len < 1e-4) continue;
+      const dir = _gd1.subVectors(_B, _A).divideScalar(len);
+      const e0 = Math.asin(clamp(dir.y, -1, 1)), e1 = Math.asin(clamp((g - _A.y) / len, -1, 1));
+      const axis = _gd2.crossVectors(dir, _gUp2.set(0, 1, 0)); if (axis.lengthSq() < 1e-10) continue;
+      this.rotateWorld(bone, _gq3.setFromAxisAngle(axis.normalize(), (e1 - e0) * w));
+    }
+    // snout: tip the neck up if the chin would dig in
+    if (this.neck && this.headB) {
+      this.neck.getWorldPosition(_A); this.headB.getWorldPosition(_B);
+      const hd = _gd1.subVectors(_B, _A).normalize(), tip = _C.copy(_B).addScaledVector(hd, 0.075);
+      const g = heightAt(tip.x, tip.z) + 0.018, len = _A.distanceTo(tip);
+      if (tip.y < g) {
+        const dir = _gd2.subVectors(tip, _A).divideScalar(len);
+        const e0 = Math.asin(clamp(dir.y, -1, 1)), e1 = Math.asin(clamp((g - _A.y) / len, -1, 1));
+        const axis = _gp.crossVectors(dir, _gUp2.set(0, 1, 0));
+        if (axis.lengthSq() > 1e-10) this.rotateWorld(this.neck, _gq3.setFromAxisAngle(axis.normalize(), (e1 - e0) * w));
+      }
+    }
   }
 }
 
@@ -803,5 +880,5 @@ function frame() {
 }
 $('#boot').remove();
 requestAnimationFrame(frame);
-window.__sim = sim; window.__threat = setThreat; window.__cam = { camera, controls };
+window.__sim = sim; window.__noGround = false; window.__heightAt = heightAt; window.__threat = setThreat; window.__cam = { camera, controls };
 </script>
